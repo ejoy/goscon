@@ -55,7 +55,8 @@ type StableLink struct {
 	// conn pair
 	remote  *net.TCPConn
 	local   *net.TCPConn
-	reuseCh chan bool
+	reuseChRemote chan bool
+	reuseChLocal chan bool
 
 	// data
 	receiveLock sync.Mutex
@@ -196,12 +197,15 @@ func forwardToRemote(link *StableLink) {
 		link.sendLock.Unlock()
 
 		// pour into remote
-		err = WriteAll(remote, cache[:n])
-		if err != nil {
-			<-link.reuseCh
-			remote = link.remote
-			// resend
-			continue
+		for {
+			err = WriteAll(remote, cache[:n])
+			if err != nil {
+				<-link.reuseChRemote
+				remote = link.remote
+				// resend
+				continue
+			}
+			break
 		}
 	}
 }
@@ -218,7 +222,7 @@ func forwardToLocal(link *StableLink) {
 		if err != nil {
 			// remote error
 			link.receiveLock.Unlock()
-			<-link.reuseCh
+			<-link.reuseChLocal
 			remote = link.remote
 			link.receiveLock.Lock()
 			continue
@@ -233,6 +237,7 @@ func forwardToLocal(link *StableLink) {
 			break
 		}
 	}
+	link.receiveLock.Unlock()
 }
 
 func onNewConn(source *net.TCPConn, req *NewConnReq) {
@@ -262,6 +267,8 @@ func onNewConn(source *net.TCPConn, req *NewConnReq) {
 	link.remote = source
 	link.local = dest
 	link.secret = secret
+	link.reuseChRemote = make(chan bool, 1)
+	link.reuseChLocal = make(chan bool, 1)
 
 	err = WriteNewConnResp(source, link.id, token)
 	if err != nil {
@@ -326,6 +333,7 @@ func onReuseConn(source *net.TCPConn, req *ReuseConnReq) {
 	if err != nil {
 		logger.Printf("write reuse conn resp to %v failed:%v", source.RemoteAddr(), err.Error())
 		source.Close()
+		link.sendLock.Unlock()
 		return
 	}
 
@@ -333,17 +341,18 @@ func onReuseConn(source *net.TCPConn, req *ReuseConnReq) {
 	if diff > 0 {
 		from := uint32(link.used) - diff
 		err = WriteAll(source, link.cache[from:link.used])
-		link.sendLock.Unlock()
 		if err != nil {
+			link.sendLock.Unlock()
 			// remote failed
 			return
 		}
 	}
+	link.sendLock.Unlock()
 
 	// reset
-	link.remote = remote
-	link.reuseCh <- true
-	link.reuseCh <- true
+	link.remote = source
+	link.reuseChLocal <- true
+	link.reuseChRemote <- true
 }
 
 func handleClient(source *net.TCPConn) {
