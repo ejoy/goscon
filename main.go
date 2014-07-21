@@ -170,6 +170,8 @@ func handleClient(source *net.TCPConn) {
 		daemon.wg.Done()
 	}()
 
+	Info("accept new connection:%v", source)
+
 	// read req
 	err, req := ReadReq(source)
 	if err != nil {

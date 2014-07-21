@@ -34,7 +34,6 @@ type NewConnReq struct {
 //  403 Index Expired
 //  404 Index Not Found
 //  406 Not Acceptable
-//  501 Not Implemented
 
 type ReuseConnReq struct {
 	id       uint32

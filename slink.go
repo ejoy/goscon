@@ -82,9 +82,14 @@ func (s *StableLink) forwardToLocal() {
 			break
 		}
 		// reuse point
-		if remote != s.remote || n == 0 {
+		if remote != s.remote {
+			Error("link(%d) drop data from remote, len:%d", s.id, n)
 			remote = s.remote
 			// drop read from old remote
+			continue
+		}
+
+		if n == 0 {
 			continue
 		}
 
