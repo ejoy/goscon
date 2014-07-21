@@ -198,7 +198,7 @@ func handleClient(source *net.TCPConn) {
 }
 
 func onEventLink(link *StableLink) {
-	if !link.broken {
+	if !link.IsBroken() {
 		daemon.links[link.id] = link
 	} else {
 		link.StopReuse()

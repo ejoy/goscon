@@ -45,7 +45,10 @@ type StableLink struct {
 
 // return value:
 //    false: need break
-func (s *StableLink) setErrConn(conn *net.TCPConn) bool {
+func (s *StableLink) setErrConn(conn *net.TCPConn, err error) bool {
+	if err != nil {
+		Debug("link(%d) error, conn:%v, err:%v ", conn, err)
+	}
 	s.errCh <- conn
 	if s.broken {
 		return false
@@ -58,16 +61,18 @@ func (s *StableLink) forwardToLocal() {
 	cache := make([]byte, 4096)
 	remote, local := s.remote, s.local
 
+	var n int
+	var err error
 	for {
 		// pump from remote
-		n, err := remote.Read(cache)
+		n, err = remote.Read(cache)
 		if err != nil { // remote error
-			if !s.setErrConn(remote) {
+			if !s.setErrConn(remote, err) {
 				break
 			}
 		}
 
-		if !s.setErrConn(nil) {
+		if !s.setErrConn(nil, nil) {
 			break
 		}
 		// reuse point
@@ -82,7 +87,7 @@ func (s *StableLink) forwardToLocal() {
 		s.recvRc4.XORKeyStream(cache[:n], cache[:n])
 		err = WriteAll(local, cache[:n])
 		if err != nil { // local error, shoud close link
-			s.setErrConn(local)
+			s.setErrConn(local, err)
 			break
 		}
 	}
@@ -93,15 +98,17 @@ func (s *StableLink) forwardToRemote() {
 	cache := make([]byte, 4096)
 	remote, local := s.remote, s.local
 
+	var n int
+	var err error
 	for {
 		// pump from local
-		n, err := local.Read(cache)
+		n, err = local.Read(cache)
 		if err != nil { // local error, shoud close link
-			s.setErrConn(local)
+			s.setErrConn(local, err)
 			break
 		}
 
-		if !s.setErrConn(nil) {
+		if !s.setErrConn(nil, nil) {
 			break
 		}
 
@@ -124,7 +131,7 @@ func (s *StableLink) forwardToRemote() {
 
 		err = WriteAll(remote, cache[:n])
 		if err != nil {
-			if !s.setErrConn(remote) {
+			if !s.setErrConn(remote, err) {
 				break
 			}
 		}
@@ -132,23 +139,37 @@ func (s *StableLink) forwardToRemote() {
 }
 
 func (s *StableLink) waitReuse() *ReuseConn {
+	var errTime time.Time
 	for {
 		var rc *ReuseConn
 		var conn *net.TCPConn
-		select {
-		case conn = <-s.errCh:
-		case rc = <-s.reuseCh:
-			return rc
+		if errTime.IsZero() {
+			select {
+			case conn = <-s.errCh:
+			case rc = <-s.reuseCh:
+				return rc
+			}
+		} else {
+			now := time.Now()
+			if errTime.Before(now) {
+				Info("link(%d) wait reuse timeout", s.id)
+				return nil
+			}
+			select {
+			case conn = <-s.errCh:
+			case rc = <-s.reuseCh:
+				return rc
+			case <-time.After(errTime.Sub(now)):
+				Info("link(%d) wait reuse timeout", s.id)
+				return nil
+			}
 		}
+
 		if conn == s.local { // local error
 			return nil
-		} else if conn == s.remote { // remote error
-			select {
-			case rc = <-s.reuseCh:
-			case <-time.After(time.Second * time.Duration(options.Timeout)):
-				Info("link(%d) wait reuse timeout", s.id)
-			}
-			return rc
+		} else if conn == s.remote && errTime.IsZero() { // remote error
+			Debug("link(%d) remote error, wait reuse", s.id)
+			errTime = time.Now().Add(time.Second * time.Duration(options.Timeout))
 		}
 	}
 }
@@ -242,6 +263,10 @@ func (s *StableLink) Run() {
 		}
 	}
 	s.broken = true
+}
+
+func (s *StableLink) IsBroken() bool {
+	return s.broken
 }
 
 func (s *StableLink) VerifyReuse(req *ReuseConnReq) uint32 {
