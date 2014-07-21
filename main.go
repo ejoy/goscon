@@ -6,19 +6,18 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
-
-	"encoding/json"
 	"math/rand"
+	"net"
 	"os"
 	"os/signal"
-	"syscall"
-	"time"
-
-	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
+	"syscall"
+	"time"
 )
 
 func usage() {
@@ -29,8 +28,11 @@ func usage() {
 
 type Options struct {
 	ConfigFile string
-	LogLevel   int
 	LocalAddr  string
+	LogLevel   uint
+	Timeout    uint
+	SendBuf    uint
+	MaxProcs   int
 }
 
 type Host struct {
@@ -291,7 +293,13 @@ func reload() {
 }
 
 func status() {
-	Info("status: actives-> %d", daemon.status.actives)
+	Info("status:\n\t"+
+		"procs:%d/%d\n\t"+
+		"goroutines:%d\n\t"+
+		"actives:%d",
+		runtime.GOMAXPROCS(0), runtime.NumCPU(),
+		runtime.NumGoroutine(),
+		daemon.status.actives)
 }
 
 func handleSignal() {
@@ -310,9 +318,12 @@ func handleSignal() {
 	}
 }
 
-func main() {
+func argsCheck() {
 	flag.StringVar(&options.LocalAddr, "listen_addr", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
-	flag.IntVar(&options.LogLevel, "log", 1, "larger value for detail log")
+	flag.UintVar(&options.LogLevel, "log", 3, "larger value for detail log")
+	flag.UintVar(&options.Timeout, "timeout", 30, "reuse timeout")
+	flag.UintVar(&options.SendBuf, "sbuf", 16384, "send buffer")
+	flag.IntVar(&options.MaxProcs, "procs", 2, "max procs")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -325,6 +336,16 @@ func main() {
 	options.ConfigFile = args[0]
 	Info("config file is: %s", options.ConfigFile)
 
+	if options.MaxProcs > 0 {
+		Info("set max procs:%d -> %d", runtime.GOMAXPROCS(options.MaxProcs), options.MaxProcs)
+	}
+}
+
+func main() {
+	// deal with arguments
+	argsCheck()
+
+	// init daemon
 	daemon.settings = readSettings(options.ConfigFile)
 	if daemon.settings == nil {
 		Error("parse config failed")

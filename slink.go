@@ -5,6 +5,7 @@
 package main
 
 import (
+	"crypto/rc4"
 	"errors"
 	"net"
 	"time"
@@ -36,6 +37,10 @@ type StableLink struct {
 
 	//
 	broken bool
+
+	// rc4
+	recvRc4 *rc4.Cipher
+	sendRc4 *rc4.Cipher
 }
 
 // return value:
@@ -66,7 +71,7 @@ func (s *StableLink) forwardToLocal() {
 			break
 		}
 		// reuse point
-		if remote != s.remote {
+		if remote != s.remote || n == 0 {
 			remote = s.remote
 			// drop read from old remote
 			continue
@@ -74,6 +79,7 @@ func (s *StableLink) forwardToLocal() {
 
 		// pour into local
 		s.received += uint32(n)
+		s.recvRc4.XORKeyStream(cache[:n], cache[:n])
 		err = WriteAll(local, cache[:n])
 		if err != nil { // local error, shoud close link
 			s.setErrConn(local)
@@ -106,6 +112,8 @@ func (s *StableLink) forwardToRemote() {
 
 		// pour into remote
 		// cache last sent
+		s.sendRc4.XORKeyStream(cache[:n], cache[:n])
+
 		s.sent += uint32(n)
 		if s.used+n > cap(s.cache) {
 			s.used = cap(s.cache) - n
@@ -137,7 +145,7 @@ func (s *StableLink) waitReuse() *ReuseConn {
 		} else if conn == s.remote { // remote error
 			select {
 			case rc = <-s.reuseCh:
-			case <-time.After(time.Second * 300):
+			case <-time.After(time.Second * time.Duration(options.Timeout)):
 				Info("link(%d) wait reuse timeout", s.id)
 			}
 			return rc
@@ -180,6 +188,7 @@ func (s *StableLink) reuse(rc *ReuseConn) error {
 
 	// resend buffered
 	if diff > 0 {
+		Error("link(%d) resend buffer:%d", s.id, diff)
 		from := uint32(s.used) - diff
 		err = WriteAll(conn, s.cache[from:s.used])
 		if err != nil {
@@ -202,8 +211,8 @@ func (s *StableLink) done() {
 
 // start forward
 func (s *StableLink) Run() {
-	s.workers += 1
-	token, secret := Gentoken(s.secret)
+	s.workers = 1
+	token, secret := GenToken(s.secret)
 	s.secret = secret
 
 	Info("link(%d) run, remote:%v, local:%v, secret:%x", s.id, s.remote.RemoteAddr(), s.local.RemoteAddr(), s.secret)
@@ -212,6 +221,11 @@ func (s *StableLink) Run() {
 		Error("link(%d) write new conn resp failed:%v", s.id, err.Error())
 		return
 	}
+
+	key := make([]byte, 8)
+	GenRC4Key(s.secret, 0, key)
+	s.recvRc4, _ = rc4.NewCipher(key)
+	s.sendRc4, _ = rc4.NewCipher(key)
 
 	s.workers += 1
 	go s.forwardToLocal()
@@ -266,6 +280,7 @@ func (s *StableLink) Wait() {
 		case _, ok := <-s.reuseCh:
 			if !ok {
 				done -= 1
+				s.reuseCh = nil
 			}
 		}
 		if done == 0 {
@@ -282,6 +297,7 @@ func (s *StableLink) Wait() {
 func NewStableLink(id uint32, remote *net.TCPConn, local *net.TCPConn, key uint64) *StableLink {
 	link := new(StableLink)
 
+	link.id = id
 	link.secret = key
 	link.remote = remote
 	link.local = local
@@ -291,7 +307,7 @@ func NewStableLink(id uint32, remote *net.TCPConn, local *net.TCPConn, key uint6
 	link.doneCh = make(chan bool)
 
 	link.used = 0
-	link.cache = make([]byte, 0x1000)
+	link.cache = make([]byte, options.SendBuf)
 
 	link.broken = false
 	return link

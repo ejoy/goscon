@@ -149,7 +149,6 @@ func ReadReq(conn *net.TCPConn) (err error, req interface{}) {
 }
 
 func WriteAll(w io.Writer, data []byte) error {
-	Debug("------- write: \n%s\n-------", string(data))
 	c := 0
 	for c < len(data) {
 		i, err := w.Write(data[c:])
@@ -187,7 +186,7 @@ func WriteReuseConnResp(conn *net.TCPConn, received uint32, code uint32) error {
 	return writeResp(conn, slots)
 }
 
-func Gentoken(key uint64) (token uint64, secret uint64) {
+func GenToken(key uint64) (token uint64, secret uint64) {
 	random := uint64(C.randomint64())
 	token = uint64(C.exchange(C.uint64_t(C.uint64_t(random))))
 	secret = uint64(C.secret(C.uint64_t(key), C.uint64_t(random)))
@@ -201,4 +200,9 @@ func VerifySecret(secret uint64, req *ReuseConnReq) bool {
 	token := uint64(C.hmac(x, C.uint64_t(secret)))
 	Debug("content:%s, hashkey:%x, secret:%x, token:%x, req.token:%x", string(content), uint64(x), secret, token, req.token)
 	return token == req.token
+}
+
+func GenRC4Key(v1 uint64, v2 uint64, key []byte) {
+	h := C.hmac(C.uint64_t(v1), C.uint64_t(v2))
+	C.uint64_encode(C.uint64_t(h), (*C.uint8_t)(unsafe.Pointer(&key[0])), C.int(cap(key)))
 }
