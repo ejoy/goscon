@@ -29,6 +29,7 @@ type StableLink struct {
 	cache    []byte
 
 	// chan
+	workCh  chan bool
 	errCh   chan *net.TCPConn
 	reuseCh chan *ReuseConn
 
@@ -47,9 +48,14 @@ type StableLink struct {
 //    false: need break
 func (s *StableLink) setErrConn(conn *net.TCPConn, err error) bool {
 	if err != nil {
-		Debug("link(%d) error, conn:%v, err:%v ", conn, err)
+		Debug("link(%d) error, conn:%v, err:%v ", s.id, conn.RemoteAddr(), err)
 	}
-	s.errCh <- conn
+	if conn == nil {
+		s.workCh <- true
+	} else {
+		s.errCh <- conn
+	}
+
 	if s.broken {
 		return false
 	}
@@ -85,6 +91,7 @@ func (s *StableLink) forwardToLocal() {
 		// pour into local
 		s.received += uint32(n)
 		s.recvRc4.XORKeyStream(cache[:n], cache[:n])
+		Debug("link(%d) forward to local, len:%d", s.id, n)
 		err = WriteAll(local, cache[:n])
 		if err != nil { // local error, shoud close link
 			s.setErrConn(local, err)
@@ -129,6 +136,7 @@ func (s *StableLink) forwardToRemote() {
 		copy(s.cache[s.used:], cache[:n])
 		s.used += n
 
+		Debug("link(%d) forward to remote, len:%d", s.id, n)
 		err = WriteAll(remote, cache[:n])
 		if err != nil {
 			if !s.setErrConn(remote, err) {
@@ -145,6 +153,7 @@ func (s *StableLink) waitReuse() *ReuseConn {
 		var conn *net.TCPConn
 		if errTime.IsZero() {
 			select {
+			case <-s.workCh:
 			case conn = <-s.errCh:
 			case rc = <-s.reuseCh:
 				return rc
@@ -298,6 +307,7 @@ func (s *StableLink) Wait() {
 	done := s.workers
 	for {
 		select {
+		case <-s.workCh:
 		case <-s.errCh:
 			// do nothing
 		case <-s.doneCh:
@@ -314,6 +324,7 @@ func (s *StableLink) Wait() {
 	}
 
 	//
+	close(s.workCh)
 	close(s.errCh)
 	close(s.doneCh)
 	Info("link(%d) close", s.id)
@@ -327,6 +338,7 @@ func NewStableLink(id uint32, remote *net.TCPConn, local *net.TCPConn, key uint6
 	link.remote = remote
 	link.local = local
 
+	link.workCh = make(chan bool)
 	link.errCh = make(chan *net.TCPConn)
 	link.reuseCh = make(chan *ReuseConn)
 	link.doneCh = make(chan bool)
