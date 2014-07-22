@@ -170,13 +170,13 @@ func handleClient(source *net.TCPConn) {
 		daemon.wg.Done()
 	}()
 
-	Info("accept new connection:%v", source)
+	Info("accept new connection: %v", source.RemoteAddr())
 
 	// read req
 	err, req := ReadReq(source)
 	if err != nil {
 		source.Close()
-		Error("conn:%v, read req failed:%v", source.RemoteAddr(), err)
+		Error("conn:%v, read req failed: %v", source.RemoteAddr(), err)
 		return
 	}
 
@@ -197,6 +197,7 @@ func handleClient(source *net.TCPConn) {
 		source.Close()
 		return
 	}
+	Info("connection close: %v", source.RemoteAddr())
 }
 
 func onEventLink(link *StableLink) {
