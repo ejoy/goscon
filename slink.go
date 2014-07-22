@@ -29,9 +29,9 @@ type StableLink struct {
 	cache    []byte
 
 	// chan
-	workCh  chan bool
-	errCh   chan *net.TCPConn
-	reuseCh chan *ReuseConn
+	sendErrCh chan *net.TCPConn
+	recvErrCh chan *net.TCPConn
+	reuseCh   chan *ReuseConn
 
 	workers int
 	doneCh  chan bool
@@ -46,15 +46,23 @@ type StableLink struct {
 
 // return value:
 //    false: need break
-func (s *StableLink) setErrConn(conn *net.TCPConn, err error) bool {
+func (s *StableLink) setSendErr(conn *net.TCPConn, err error) bool {
 	if err != nil {
 		Debug("link(%d) error, conn:%v, err:%v ", s.id, conn.RemoteAddr(), err)
 	}
-	if conn == nil {
-		s.workCh <- true
-	} else {
-		s.errCh <- conn
+	s.sendErrCh <- conn
+
+	if s.broken {
+		return false
 	}
+	return true
+}
+
+func (s *StableLink) setRecvErr(conn *net.TCPConn, err error) bool {
+	if err != nil {
+		Debug("link(%d) error, conn:%v, err:%v ", s.id, conn.RemoteAddr(), err)
+	}
+	s.recvErrCh <- conn
 
 	if s.broken {
 		return false
@@ -73,12 +81,12 @@ func (s *StableLink) forwardToLocal() {
 		// pump from remote
 		n, err = remote.Read(cache)
 		if err != nil { // remote error
-			if !s.setErrConn(remote, err) {
+			if !s.setRecvErr(remote, err) {
 				break
 			}
 		}
 
-		if !s.setErrConn(nil, nil) {
+		if !s.setRecvErr(nil, nil) {
 			break
 		}
 		// reuse point
@@ -99,7 +107,7 @@ func (s *StableLink) forwardToLocal() {
 		Debug("link(%d) forward to local, len:%d", s.id, n)
 		err = WriteAll(local, cache[:n])
 		if err != nil { // local error, shoud close link
-			s.setErrConn(local, err)
+			s.setRecvErr(local, err)
 			break
 		}
 	}
@@ -116,11 +124,11 @@ func (s *StableLink) forwardToRemote() {
 		// pump from local
 		n, err = local.Read(cache)
 		if err != nil { // local error, shoud close link
-			s.setErrConn(local, err)
+			s.setSendErr(local, err)
 			break
 		}
 
-		if !s.setErrConn(nil, nil) {
+		if !s.setSendErr(nil, nil) {
 			break
 		}
 
@@ -141,12 +149,13 @@ func (s *StableLink) forwardToRemote() {
 		copy(s.cache[s.used:], cache[:n])
 		s.used += n
 
-		Debug("link(%d) forward to remote, len:%d", s.id, n)
 		err = WriteAll(remote, cache[:n])
 		if err != nil {
-			if !s.setErrConn(remote, err) {
+			if !s.setSendErr(remote, err) {
 				break
 			}
+		} else {
+			Debug("link(%d) forward to remote, len:%d", s.id, n)
 		}
 	}
 }
@@ -158,8 +167,8 @@ func (s *StableLink) waitReuse() *ReuseConn {
 		var conn *net.TCPConn
 		if errTime.IsZero() {
 			select {
-			case <-s.workCh:
-			case conn = <-s.errCh:
+			case conn = <-s.sendErrCh:
+			case conn = <-s.recvErrCh:
 			case rc = <-s.reuseCh:
 				return rc
 			}
@@ -170,7 +179,7 @@ func (s *StableLink) waitReuse() *ReuseConn {
 				return nil
 			}
 			select {
-			case conn = <-s.errCh:
+			case conn = <-s.sendErrCh:
 			case rc = <-s.reuseCh:
 				return rc
 			case <-time.After(errTime.Sub(now)):
@@ -315,8 +324,8 @@ func (s *StableLink) Wait() {
 	done := s.workers
 	for {
 		select {
-		case <-s.workCh:
-		case <-s.errCh:
+		case <-s.sendErrCh:
+		case <-s.recvErrCh:
 			// do nothing
 		case <-s.doneCh:
 			done -= 1
@@ -332,8 +341,8 @@ func (s *StableLink) Wait() {
 	}
 
 	//
-	close(s.workCh)
-	close(s.errCh)
+	close(s.sendErrCh)
+	close(s.recvErrCh)
 	close(s.doneCh)
 	Info("link(%d) close", s.id)
 }
@@ -346,8 +355,8 @@ func NewStableLink(id uint32, remote *net.TCPConn, local *net.TCPConn, key uint6
 	link.remote = remote
 	link.local = local
 
-	link.workCh = make(chan bool)
-	link.errCh = make(chan *net.TCPConn)
+	link.sendErrCh = make(chan *net.TCPConn)
+	link.recvErrCh = make(chan *net.TCPConn)
 	link.reuseCh = make(chan *ReuseConn)
 	link.doneCh = make(chan bool)
 
