@@ -257,8 +257,11 @@ func (s *StableLink) Run() {
 		return
 	}
 
-	key := make([]byte, 8)
-	GenRC4Key(s.secret, 0, key)
+	key := make([]byte, 32)
+	GenRC4Key(s.secret, 0, key[0:8])
+	GenRC4Key(s.secret, 1, key[8:16])
+	GenRC4Key(s.secret, 2, key[16:24])
+	GenRC4Key(s.secret, 3, key[24:32])
 	s.recvRc4, _ = rc4.NewCipher(key)
 	s.sendRc4, _ = rc4.NewCipher(key)
 
