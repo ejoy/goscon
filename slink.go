@@ -105,7 +105,7 @@ func (s *StableLink) forwardToLocal() {
 		s.received += uint32(n)
 		s.recvRc4.XORKeyStream(cache[:n], cache[:n])
 		Debug("link(%d) forward to local, len:%d", s.id, n)
-		err = WriteAll(local, cache[:n])
+		_, err = local.Write(cache[:n])
 		if err != nil { // local error, shoud close link
 			s.setRecvErr(local, err)
 			break
@@ -149,7 +149,7 @@ func (s *StableLink) forwardToRemote() {
 		copy(s.cache[s.used:], cache[:n])
 		s.used += n
 
-		err = WriteAll(remote, cache[:n])
+		_, err = remote.Write(cache[:n])
 		if err != nil {
 			if !s.setSendErr(remote, err) {
 				break
@@ -234,7 +234,7 @@ func (s *StableLink) reuse(rc *ReuseConn) error {
 	if diff > 0 {
 		Error("link(%d) resend buffer:%d", s.id, diff)
 		from := uint32(s.used) - diff
-		err = WriteAll(conn, s.cache[from:s.used])
+		_, err = conn.Write(s.cache[from:s.used])
 		if err != nil {
 			Error("link(%d) resend buffer:%v", s.id, err.Error())
 			conn.Close()
