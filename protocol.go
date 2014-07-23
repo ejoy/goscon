@@ -11,7 +11,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -147,18 +146,6 @@ func ReadReq(conn *net.TCPConn) (err error, req interface{}) {
 	return
 }
 
-func WriteAll(w io.Writer, data []byte) error {
-	c := 0
-	for c < len(data) {
-		i, err := w.Write(data[c:])
-		if err != nil {
-			return err
-		}
-		c += i
-	}
-	return nil
-}
-
 func writeResp(conn *net.TCPConn, slots []string) error {
 	chunk := strings.Join(slots, "\n")
 	sz := uint16(len(chunk))
@@ -168,7 +155,8 @@ func writeResp(conn *net.TCPConn, slots []string) error {
 	}
 
 	Debug("send resp: %s", string(chunk))
-	return WriteAll(conn, []byte(chunk))
+	_, err = conn.Write([]byte(chunk))
+	return err
 }
 
 func WriteNewConnResp(conn *net.TCPConn, id uint32, key uint64) error {
