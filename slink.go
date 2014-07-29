@@ -216,6 +216,8 @@ func (s *StableLink) reuse(rc *ReuseConn) error {
 		diff = s.sent - req.received
 	}
 
+	// set write resp timeout
+	conn.SetWriteDeadline(time.Now().Add(time.Second))
 	if diff > uint32(s.used) {
 		Info("link(%d) reuse failed:%d", s.id, 406)
 		WriteReuseConnResp(conn, 0, 406)
@@ -246,6 +248,10 @@ func (s *StableLink) reuse(rc *ReuseConn) error {
 	Info("link(%d) reuse succeed:%v -> %v", s.id, s.remote.RemoteAddr(), conn.RemoteAddr())
 	s.remote.Close()
 	s.remote = conn
+
+	// cancle write timeout
+	var t time.Time
+	conn.SetWriteDeadline(t)
 	return nil
 }
 

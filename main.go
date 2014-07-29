@@ -172,7 +172,13 @@ func handleClient(source *net.TCPConn) {
 
 	Info("accept new connection: %v", source.RemoteAddr())
 
+	source.SetKeepAlive(true)
+	source.SetKeepAlivePeriod(time.Second * 60)
+	source.SetLinger(-1)
+
 	// read req
+	// set read request timeout
+	source.SetReadDeadline(time.Now().Add(time.Second * 30))
 	err, req := ReadReq(source)
 	if err != nil {
 		source.Close()
@@ -180,9 +186,9 @@ func handleClient(source *net.TCPConn) {
 		return
 	}
 
-	source.SetKeepAlive(true)
-	source.SetKeepAlivePeriod(time.Second * 60)
-	source.SetLinger(-1)
+	// cancel read timeout
+	var t time.Time
+	source.SetReadDeadline(t)
 
 	// judge: new conn or reuse conn
 	switch req := req.(type) {
