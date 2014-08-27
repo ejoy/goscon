@@ -144,7 +144,7 @@ func (s *StableLink) forwardToRemote() {
 		s.sent += uint32(n)
 		if s.used+n > cap(s.cache) {
 			s.used = cap(s.cache) - n
-			copy(s.cache, s.cache[:s.used])
+			copy(s.cache, s.cache[n:])
 		}
 		copy(s.cache[s.used:], cache[:n])
 		s.used += n
