@@ -281,7 +281,7 @@ func start() {
 		conn, err := daemon.ln.AcceptTCP()
 		if err != nil {
 			Error("accept failed:%s", err.Error())
-			break
+			continue
 		}
 		daemon.wg.Add(1)
 		go handleClient(conn)
