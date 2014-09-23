@@ -281,6 +281,11 @@ func start() {
 		conn, err := daemon.ln.AcceptTCP()
 		if err != nil {
 			Error("accept failed:%s", err.Error())
+			if opErr, ok := err.(*net.OpError); ok {
+				if !opErr.Temporary() {
+					break
+				}
+			}
 			continue
 		}
 		daemon.wg.Add(1)
