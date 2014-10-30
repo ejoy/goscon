@@ -47,3 +47,7 @@ func Panic(format string, a ...interface{}) {
 	_print(format, a...)
 	panic("!!")
 }
+
+func Log(format string, a ...interface{}) {
+	_print(format, a...)
+}

@@ -295,6 +295,11 @@ func (s *StableLink) Run() {
 		}
 	}
 	s.broken = true
+
+	// drop all reuse
+	select {
+	case <-s.reuseCh:
+	}
 }
 
 func (s *StableLink) IsBroken() bool {
@@ -316,7 +321,12 @@ func (s *StableLink) VerifyReuse(req *ReuseConnReq) uint32 {
 }
 
 func (s *StableLink) Reuse(rc *ReuseConn) {
-	s.reuseCh <- rc
+	if s.broken {
+		// ignore reuse, if link broken
+		Error("link(%d) reuse broken link", s.id)
+	} else {
+		s.reuseCh <- rc
+	}
 }
 
 func (s *StableLink) StopReuse() {

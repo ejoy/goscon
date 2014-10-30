@@ -249,7 +249,7 @@ func dispatchErr() {
 		if !ok {
 			break
 		}
-		Info("link(%d) reuse failed:%d", e.rc.req.id, e.code)
+		Error("link(%d) reuse failed:%d", e.rc.req.id, e.code)
 		e.rc.conn.SetWriteDeadline(time.Now().Add(time.Second))
 		WriteReuseConnResp(e.rc.conn, 0, e.code)
 		e.rc.conn.Close()
@@ -299,15 +299,15 @@ const SIG_STATUS = syscall.Signal(35)
 func reload() {
 	settings := readSettings(options.ConfigFile)
 	if settings == nil {
-		Info("reload failed")
+		Log("reload failed")
 		return
 	}
 	daemon.settings = settings
-	Info("reload succeed")
+	Log("reload succeed")
 }
 
 func status() {
-	Info("status:\n\t"+
+	Log("status:\n\t"+
 		"procs:%d/%d\n\t"+
 		"goroutines:%d\n\t"+
 		"actives:%d",
@@ -327,7 +327,7 @@ func handleSignal() {
 		case SIG_STATUS:
 			status()
 		case syscall.SIGTERM:
-			Info("catch sigterm, ignore")
+			Log("catch sigterm, ignore")
 		}
 	}
 }
