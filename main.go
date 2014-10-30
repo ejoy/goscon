@@ -210,7 +210,6 @@ func onEventLink(link *StableLink) {
 	if !link.IsBroken() {
 		daemon.links[link.id] = link
 	} else {
-		link.StopReuse()
 		delete(daemon.links, link.id)
 		daemon.nextidCh <- link.id
 	}

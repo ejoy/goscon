@@ -191,7 +191,8 @@ func (s *StableLink) waitReuse() *ReuseConn {
 		if conn == s.local { // local error
 			return nil
 		} else if conn == s.remote && errTime.IsZero() { // remote error
-			Debug("link(%d) remote error, wait reuse", s.id)
+			conn.Close()
+			Info("link(%d) remote error, wait reuse", s.id)
 			errTime = time.Now().Add(time.Second * time.Duration(options.Timeout))
 		}
 	}
@@ -299,7 +300,9 @@ func (s *StableLink) Run() {
 	// drop all reuse
 	select {
 	case <-s.reuseCh:
+	default:
 	}
+	close(s.reuseCh)
 }
 
 func (s *StableLink) IsBroken() bool {
@@ -327,10 +330,6 @@ func (s *StableLink) Reuse(rc *ReuseConn) {
 	} else {
 		s.reuseCh <- rc
 	}
-}
-
-func (s *StableLink) StopReuse() {
-	close(s.reuseCh)
 }
 
 func (s *StableLink) Wait() {
