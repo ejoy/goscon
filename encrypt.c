@@ -158,34 +158,3 @@ uint64_t hash(const uint8_t* str, int sz) {
     return key;
 }
 
-uint64_t uint64_decode(const uint8_t* str, int sz) {
-    uint64_t v = 0;
-    if(sz < 8) {
-        return v;
-    }
-
-    v = (v | str[7]) << 8;
-    v = (v | str[6]) << 8;
-    v = (v | str[5]) << 8;
-    v = (v | str[4]) << 8;
-    v = (v | str[3]) << 8;
-    v = (v | str[2]) << 8;
-    v = (v | str[1]) << 8;
-    v |= str[0];
-    return v;
-}
-
-void uint64_encode(uint64_t v, uint8_t* buf, int sz) {
-    if(sz < 8) {
-        return;
-    }
-    buf[0] = v & 0xff;
-    buf[1] = (v >> 8 )& 0xff;
-    buf[2] = (v >> 16 )& 0xff;
-    buf[3] = (v >> 24 )& 0xff;
-    buf[4] = (v >> 32 )& 0xff;
-    buf[5] = (v >> 40 )& 0xff;
-    buf[6] = (v >> 48 )& 0xff;
-    buf[7] = (v >> 56 )& 0xff;
-}
-

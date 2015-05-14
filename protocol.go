@@ -14,7 +14,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"unsafe"
 )
 
 // #include <stdlib.h>
@@ -53,13 +52,13 @@ func b64decodeUint64(src []byte) (key uint64, err error) {
 		return
 	}
 
-	key = uint64(C.uint64_decode((*C.uint8_t)(unsafe.Pointer(&dst[0])), C.int(n)))
+	key = binary.LittleEndian.Uint64(dst)
 	return
 }
 
 func b64encodeUint64(val uint64) string {
 	buf := make([]byte, 8)
-	C.uint64_encode(C.uint64_t(val), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.int(8))
+	binary.LittleEndian.PutUint64(buf, val)
 	return base64.StdEncoding.EncodeToString(buf)
 }
 
@@ -175,7 +174,7 @@ func WriteReuseConnResp(conn *net.TCPConn, received uint32, code uint32) error {
 
 func GenToken(key uint64) (token uint64, secret uint64) {
 	random := uint64(C.randomint64())
-	token = uint64(C.exchange(C.uint64_t(C.uint64_t(random))))
+	token = uint64(C.exchange((C.uint64_t(random))))
 	secret = uint64(C.secret(C.uint64_t(key), C.uint64_t(random)))
 	Debug("random:%x, token:%x, secret:%x\n", random, token, secret)
 	return
@@ -191,5 +190,5 @@ func VerifySecret(secret uint64, req *ReuseConnReq) bool {
 
 func GenRC4Key(v1 uint64, v2 uint64, key []byte) {
 	h := C.hmac(C.uint64_t(v1), C.uint64_t(v2))
-	C.uint64_encode(C.uint64_t(h), (*C.uint8_t)(unsafe.Pointer(&key[0])), C.int(cap(key)))
+	binary.LittleEndian.PutUint64(key, uint64(h))
 }
