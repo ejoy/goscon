@@ -19,7 +19,5 @@ uint64_t randomint64();
 uint64_t hmac(uint64_t x, uint64_t y);
 uint64_t hash(const uint8_t* str, int sz);
 
-uint64_t uint64_decode(const uint8_t* str, int sz);
-void uint64_encode(uint64_t v, uint8_t* buf, int sz);
 #endif
 
