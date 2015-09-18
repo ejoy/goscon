@@ -63,9 +63,9 @@ uint64_t secret(uint64_t x, uint64_t y) {
 
 uint64_t randomint64() {
 	uint64_t a = rand();
-	uint64_t b = rand();
-	uint64_t c = rand();
-	uint64_t d = rand();
+	uint64_t b = rand() & 0xffff;
+	uint64_t c = rand() & 0xffff;
+	uint64_t d = (rand() & 0xffff) + 1;
 	return a << 48 | b << 32 | c << 16 | d;
 }
 
