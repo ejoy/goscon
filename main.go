@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
@@ -29,6 +31,7 @@ func usage() {
 type Options struct {
 	ConfigFile string
 	LocalAddr  string
+	HttpAddr string
 	LogLevel   uint
 	Timeout    uint
 	SendBuf    uint
@@ -75,7 +78,8 @@ type Daemon struct {
 
 	// links
 	links map[uint32]*StableLink
-
+	ips map[string]string
+	
 	// event channel
 	// *StableLink new conn
 	// *ReuseConn reuse conn
@@ -209,8 +213,10 @@ func handleClient(source *net.TCPConn) {
 func onEventLink(link *StableLink) {
 	if !link.IsBroken() {
 		daemon.links[link.id] = link
+		daemon.ips[link.local.LocalAddr().String()] = link.remote.RemoteAddr().String()
 	} else {
 		delete(daemon.links, link.id)
+		delete(daemon.ips, link.local.LocalAddr().String())
 		daemon.nextidCh <- link.id
 	}
 }
@@ -331,8 +337,32 @@ func handleSignal() {
 	}
 }
 
+func httpGetRemoteIp(w http.ResponseWriter, req *http.Request) {
+	local_ip := ""
+	queryForm, err := url.ParseQuery(req.URL.RawQuery)
+	if err == nil && len(queryForm["ip"]) > 0 {
+		local_ip = queryForm["ip"][0]
+	}
+
+	remote_ip := daemon.ips[local_ip]
+	Debug("get_remote_ip:%s is from:%s", local_ip, remote_ip)
+	fmt.Fprintf(w, remote_ip)
+}
+
+func handleHttp(addr string) {
+	http.HandleFunc("/get_remote_ip", httpGetRemoteIp)
+	Info("start http service<%s>", addr)
+	err := http.ListenAndServe(addr, nil)
+	if err != nil {
+		Error("start http service<%s> failed:%s", addr, err.Error())
+		os.Exit(1)
+		return
+	}
+}
+
 func argsCheck() {
 	flag.StringVar(&options.LocalAddr, "listen_addr", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
+	flag.StringVar(&options.HttpAddr, "http_addr", "127.0.0.1:1249", "http listen port(127.0.0.1:1249)")
 	flag.UintVar(&options.LogLevel, "log", 3, "larger value for detail log")
 	flag.UintVar(&options.Timeout, "timeout", 30, "reuse timeout")
 	flag.UintVar(&options.SendBuf, "sbuf", 16384, "send buffer")
@@ -373,12 +403,14 @@ func main() {
 	}
 
 	daemon.links = make(map[uint32]*StableLink)
+	daemon.ips = make(map[string]string)
 	daemon.eventCh = make(chan interface{})
 	daemon.errCh = make(chan *ReuseError, 1024)
 
 	// run
 	Info("goscon started")
 	go handleSignal()
+	go handleHttp(options.HttpAddr)
 	start()
 	daemon.wg.Wait()
 }
