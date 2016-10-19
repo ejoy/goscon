@@ -78,7 +78,7 @@ type Daemon struct {
 
 	// links
 	links map[uint32]*StableLink
-	ips map[string]string
+	addrs map[string]string
 	
 	// event channel
 	// *StableLink new conn
@@ -213,10 +213,10 @@ func handleClient(source *net.TCPConn) {
 func onEventLink(link *StableLink) {
 	if !link.IsBroken() {
 		daemon.links[link.id] = link
-		daemon.ips[link.local.LocalAddr().String()] = link.remote.RemoteAddr().String()
+		daemon.addrs[link.local.LocalAddr().String()] = link.remote.RemoteAddr().String()
 	} else {
 		delete(daemon.links, link.id)
-		delete(daemon.ips, link.local.LocalAddr().String())
+		delete(daemon.addrs, link.local.LocalAddr().String())
 		daemon.nextidCh <- link.id
 	}
 }
@@ -337,20 +337,20 @@ func handleSignal() {
 	}
 }
 
-func httpGetRemoteIp(w http.ResponseWriter, req *http.Request) {
-	local_ip := ""
+func httpGetRemoteAddr(w http.ResponseWriter, req *http.Request) {
+	local_addr := ""
 	queryForm, err := url.ParseQuery(req.URL.RawQuery)
-	if err == nil && len(queryForm["ip"]) > 0 {
-		local_ip = queryForm["ip"][0]
+	if err == nil && len(queryForm["addr"]) > 0 {
+		local_addr = queryForm["addr"][0]
 	}
 
-	remote_ip := daemon.ips[local_ip]
-	Debug("get_remote_ip:%s is from:%s", local_ip, remote_ip)
-	fmt.Fprintf(w, remote_ip)
+	remote_addr := daemon.addrs[local_addr]
+	Debug("get_remote_addr:%s is from:%s", local_addr, remote_addr)
+	fmt.Fprintf(w, remote_addr)
 }
 
 func handleHttp(addr string) {
-	http.HandleFunc("/get_remote_ip", httpGetRemoteIp)
+	http.HandleFunc("/get_remote_addr", httpGetRemoteAddr)
 	Info("start http service<%s>", addr)
 	err := http.ListenAndServe(addr, nil)
 	if err != nil {
@@ -403,7 +403,7 @@ func main() {
 	}
 
 	daemon.links = make(map[uint32]*StableLink)
-	daemon.ips = make(map[string]string)
+	daemon.addrs = make(map[string]string)
 	daemon.eventCh = make(chan interface{})
 	daemon.errCh = make(chan *ReuseError, 1024)
 
