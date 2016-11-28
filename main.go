@@ -31,7 +31,7 @@ func usage() {
 type Options struct {
 	ConfigFile string
 	LocalAddr  string
-	HttpAddr string
+	HttpAddr   string
 	LogLevel   uint
 	Timeout    uint
 	SendBuf    uint
@@ -59,6 +59,11 @@ type ReuseConn struct {
 	req  *ReuseConnReq
 }
 
+type QueryRemoteAddr struct {
+	arg   string
+	retCh chan string
+}
+
 type ReuseError struct {
 	rc   *ReuseConn
 	code uint32
@@ -79,7 +84,7 @@ type Daemon struct {
 	// links
 	links map[uint32]*StableLink
 	addrs map[string]string
-	
+
 	// event channel
 	// *StableLink new conn
 	// *ReuseConn reuse conn
@@ -236,6 +241,12 @@ func onEventReuse(rc *ReuseConn) {
 	}
 }
 
+func onEventQueryRemoteAddr(req *QueryRemoteAddr) {
+	remote_addr := daemon.addrs[req.arg]
+	// Debug("onEventQueryRemoteAddr, arg:%s, ret:%s", req.arg, remote_addr)
+	req.retCh <- remote_addr
+}
+
 func dispatch() {
 	for {
 		event := <-daemon.eventCh
@@ -244,6 +255,8 @@ func dispatch() {
 			onEventLink(event)
 		case *ReuseConn:
 			onEventReuse(event)
+		case *QueryRemoteAddr:
+			onEventQueryRemoteAddr(event)
 		}
 	}
 }
@@ -344,7 +357,16 @@ func httpGetRemoteAddr(w http.ResponseWriter, req *http.Request) {
 		local_addr = queryForm["addr"][0]
 	}
 
-	remote_addr := daemon.addrs[local_addr]
+	// 不能写remote_addr := daemon.addrs[local_addr]
+	// 直接取会导致多个线程对同一个map同时读写, 所以转用事件的方式
+	query := new(QueryRemoteAddr)
+	query.arg = local_addr
+	query.retCh = make(chan string, 1)
+
+	// Debug("get_remote_addr.0, local:%s", local_addr)
+	daemon.eventCh <- query
+	remote_addr := <-query.retCh
+
 	Debug("get_remote_addr:%s is from:%s", local_addr, remote_addr)
 	fmt.Fprintf(w, remote_addr)
 }
