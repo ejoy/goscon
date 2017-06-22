@@ -9,13 +9,15 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"github.com/ejoy/goscon/alg"
 )
 
 type StableLink struct {
 	id uint32
 
 	// build
-	secret leu64
+	secret alg.Leu64
 	index  uint32
 
 	// conn pair
@@ -274,10 +276,10 @@ func (s *StableLink) Run() {
 	}
 
 	key := make([]byte, 32)
-	GenRC4Key(s.secret, toLeu64(0), key[0:8])
-	GenRC4Key(s.secret, toLeu64(1), key[8:16])
-	GenRC4Key(s.secret, toLeu64(2), key[16:24])
-	GenRC4Key(s.secret, toLeu64(3), key[24:32])
+	GenRC4Key(s.secret, alg.ToLeu64(0), key[0:8])
+	GenRC4Key(s.secret, alg.ToLeu64(1), key[8:16])
+	GenRC4Key(s.secret, alg.ToLeu64(2), key[16:24])
+	GenRC4Key(s.secret, alg.ToLeu64(3), key[24:32])
 	s.recvRc4, _ = rc4.NewCipher(key)
 	s.sendRc4, _ = rc4.NewCipher(key)
 
@@ -362,7 +364,7 @@ func (s *StableLink) Wait() {
 	Info("link(%d) close", s.id)
 }
 
-func NewStableLink(id uint32, remote *net.TCPConn, local *net.TCPConn, key leu64) *StableLink {
+func NewStableLink(id uint32, remote *net.TCPConn, local *net.TCPConn, key alg.Leu64) *StableLink {
 	link := new(StableLink)
 
 	link.id = id

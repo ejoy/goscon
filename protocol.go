@@ -15,12 +15,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ejoy/goscon/alg"
 	"github.com/ejoy/goscon/dh64"
 )
 
 type NewConnReq struct {
 	id  uint32
-	key leu64
+	key alg.Leu64
 }
 
 // code:
@@ -34,19 +35,18 @@ type ReuseConnReq struct {
 	id       uint32
 	index    uint32
 	received uint32
-	token    leu64
+	token    alg.Leu64
 }
 
-func b64decodeUint64(src []byte) (v leu64, err error) {
+func b64decodeLeu64(src []byte) (v alg.Leu64, err error) {
 	n := base64.StdEncoding.DecodedLen(len(src))
-	if n != 8 {
+	if n < 8 {
 		err = errors.New("wrong dh key length")
 		return
 	}
 
 	dst := make([]byte, n)
 	if _, err = base64.StdEncoding.Decode(dst, src); err != nil {
-		Error("decoding base64 dh_key failed:%v", err)
 		return
 	}
 
@@ -54,7 +54,7 @@ func b64decodeUint64(src []byte) (v leu64, err error) {
 	return
 }
 
-func b64encodeUint64(v leu64) string {
+func b64encodeLeu64(v alg.Leu64) string {
 	return base64.StdEncoding.EncodeToString(v[:])
 }
 
@@ -64,7 +64,7 @@ func parseNewConnReq(id uint32, slots [][]byte) (err error, req *NewConnReq) {
 		err = errors.New("wrong new conn request")
 		return
 	}
-	key, err := b64decodeUint64(slots[0])
+	key, err := b64decodeLeu64(slots[0])
 	if err != nil {
 		return
 	}
@@ -91,7 +91,7 @@ func parseReuseConnReq(id uint32, slots [][]byte) (err error, req *ReuseConnReq)
 		return
 	}
 
-	key, err := b64decodeUint64(slots[2])
+	key, err := b64decodeLeu64(slots[2])
 	if err != nil {
 		return
 	}
@@ -154,10 +154,10 @@ func writeResp(conn *net.TCPConn, slots []string) error {
 	return err
 }
 
-func WriteNewConnResp(conn *net.TCPConn, id uint32, key leu64) error {
+func WriteNewConnResp(conn *net.TCPConn, id uint32, key alg.Leu64) error {
 	slots := make([]string, 2)
 	slots[0] = strconv.FormatUint(uint64(id), 10)
-	slots[1] = b64encodeUint64(key)
+	slots[1] = b64encodeLeu64(key)
 	return writeResp(conn, slots)
 }
 
@@ -168,23 +168,23 @@ func WriteReuseConnResp(conn *net.TCPConn, received uint32, code uint32) error {
 	return writeResp(conn, slots)
 }
 
-func GenToken(clientPubKey leu64) (leu64, leu64) {
+func GenToken(clientPubKey alg.Leu64) (alg.Leu64, alg.Leu64) {
 	priKey := dh64.PrivateKey()
 	pubKey := dh64.PublicKey(priKey)
 	secret := dh64.Secret(priKey, clientPubKey.Uint64())
 	Debug("privateKey:0x%x, publicKey:0x%x, Secret:0x%x\n", priKey, pubKey, secret)
-	return toLeu64(pubKey), toLeu64(secret)
+	return alg.ToLeu64(pubKey), alg.ToLeu64(secret)
 }
 
-func VerifySecret(secret leu64, req *ReuseConnReq) bool {
+func VerifySecret(secret alg.Leu64, req *ReuseConnReq) bool {
 	content := []byte(fmt.Sprintf("%d\n%d\n%d\n", req.id, req.index, req.received))
-	x := Hash(content)
-	token := Hmac(x, secret)
+	x := alg.Hash(content)
+	token := alg.Hmac(x, secret)
 	Debug("content:%s, hashkey:%x, secret:%x, token:%x, req.token:%x", string(content), x.Uint64(), secret, token, req.token)
 	return token == req.token
 }
 
-func GenRC4Key(v1 leu64, v2 leu64, key []byte) {
-	h := Hmac(v1, v2)
+func GenRC4Key(v1 alg.Leu64, v2 alg.Leu64, key []byte) {
+	h := alg.Hmac(v1, v2)
 	copy(key, h[:])
 }
