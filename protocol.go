@@ -14,16 +14,13 @@ import (
 	"net"
 	"strconv"
 	"strings"
-)
 
-// #include <stdlib.h>
-// #include <stdint.h>
-// #include "encrypt.h"
-import "C"
+	"github.com/ejoy/goscon/dh64"
+)
 
 type NewConnReq struct {
 	id  uint32
-	key uint64
+	key leu64
 }
 
 // code:
@@ -37,29 +34,28 @@ type ReuseConnReq struct {
 	id       uint32
 	index    uint32
 	received uint32
-	token    uint64
+	token    leu64
 }
 
-func b64decodeUint64(src []byte) (key uint64, err error) {
-	dst := make([]byte, base64.StdEncoding.DecodedLen(len(src)))
-	n, err := base64.StdEncoding.Decode(dst, src)
-	if err != nil {
-		Error("decoding base64 dh_key failed:%v", err)
-		return
-	}
-	if n < 8 {
+func b64decodeUint64(src []byte) (v leu64, err error) {
+	n := base64.StdEncoding.DecodedLen(len(src))
+	if n != 8 {
 		err = errors.New("wrong dh key length")
 		return
 	}
 
-	key = binary.LittleEndian.Uint64(dst)
+	dst := make([]byte, n)
+	if _, err = base64.StdEncoding.Decode(dst, src); err != nil {
+		Error("decoding base64 dh_key failed:%v", err)
+		return
+	}
+
+	v.Write(dst)
 	return
 }
 
-func b64encodeUint64(val uint64) string {
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, val)
-	return base64.StdEncoding.EncodeToString(buf)
+func b64encodeUint64(v leu64) string {
+	return base64.StdEncoding.EncodeToString(v[:])
 }
 
 func parseNewConnReq(id uint32, slots [][]byte) (err error, req *NewConnReq) {
@@ -158,7 +154,7 @@ func writeResp(conn *net.TCPConn, slots []string) error {
 	return err
 }
 
-func WriteNewConnResp(conn *net.TCPConn, id uint32, key uint64) error {
+func WriteNewConnResp(conn *net.TCPConn, id uint32, key leu64) error {
 	slots := make([]string, 2)
 	slots[0] = strconv.FormatUint(uint64(id), 10)
 	slots[1] = b64encodeUint64(key)
@@ -172,23 +168,23 @@ func WriteReuseConnResp(conn *net.TCPConn, received uint32, code uint32) error {
 	return writeResp(conn, slots)
 }
 
-func GenToken(key uint64) (token uint64, secret uint64) {
-	random := uint64(C.randomint64())
-	token = uint64(C.exchange((C.uint64_t(random))))
-	secret = uint64(C.secret(C.uint64_t(key), C.uint64_t(random)))
-	Debug("random:%x, token:%x, secret:%x\n", random, token, secret)
-	return
+func GenToken(clientPubKey leu64) (leu64, leu64) {
+	priKey := dh64.PrivateKey()
+	pubKey := dh64.PublicKey(priKey)
+	secret := dh64.Secret(priKey, clientPubKey.Uint64())
+	Debug("privateKey:0x%x, publicKey:0x%x, Secret:0x%x\n", priKey, pubKey, secret)
+	return toLeu64(pubKey), toLeu64(secret)
 }
 
-func VerifySecret(secret uint64, req *ReuseConnReq) bool {
+func VerifySecret(secret leu64, req *ReuseConnReq) bool {
 	content := []byte(fmt.Sprintf("%d\n%d\n%d\n", req.id, req.index, req.received))
-	x := C.hash((*C.uint8_t)(&content[0]), C.int(len(content)))
-	token := uint64(C.hmac(x, C.uint64_t(secret)))
-	Debug("content:%s, hashkey:%x, secret:%x, token:%x, req.token:%x", string(content), uint64(x), secret, token, req.token)
+	x := Hash(content)
+	token := Hmac(x, secret)
+	Debug("content:%s, hashkey:%x, secret:%x, token:%x, req.token:%x", string(content), x.Uint64(), secret, token, req.token)
 	return token == req.token
 }
 
-func GenRC4Key(v1 uint64, v2 uint64, key []byte) {
-	h := C.hmac(C.uint64_t(v1), C.uint64_t(v2))
-	binary.LittleEndian.PutUint64(key, uint64(h))
+func GenRC4Key(v1 leu64, v2 leu64, key []byte) {
+	h := Hmac(v1, v2)
+	copy(key, h[:])
 }
