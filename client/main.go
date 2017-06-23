@@ -1,39 +1,13 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"os"
-	"strconv"
-	"strings"
 
-	"github.com/ejoy/goscon/alg"
-	"github.com/ejoy/goscon/dh64"
+	"github.com/ejoy/goscon/scp"
 )
-
-type NewConnReq struct {
-	id  uint32
-	key alg.Leu64
-}
-
-func b64encodeUint64(v alg.Leu64) string {
-	return base64.StdEncoding.EncodeToString(v[:])
-}
-
-func writeRequest(conn net.Conn, slots []string) error {
-	chunk := strings.Join(slots, "\n")
-	sz := uint16(len(chunk))
-	err := binary.Write(conn, binary.BigEndian, sz)
-	if err != nil {
-		return err
-	}
-
-	_, err = conn.Write([]byte(chunk))
-	return err
-}
 
 func main() {
 	if len(os.Args) <= 1 {
@@ -42,24 +16,46 @@ func main() {
 	}
 
 	addr := os.Args[1]
-	conn, err := net.Dial("tcp", addr)
+	old, err := net.Dial("tcp", addr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Connect failed: %s", err.Error())
 		return
 	}
 
-	req := new(NewConnReq)
-	privateKey := dh64.PrivateKey()
-	publicKey := dh64.PublicKey(privateKey)
-	req.key = alg.ToLeu64(publicKey)
+	oldScon := scp.Client(old, nil)
 
-	slots := make([]string, 2)
-	slots[0] = strconv.FormatUint(uint64(req.id), 10)
-	slots[1] = b64encodeUint64(req.key)
-
-	if err := writeRequest(conn, slots); err != nil {
+	if _, err := oldScon.Write([]byte("hello\n")); err != nil {
 		fmt.Fprintf(os.Stderr, "Write failed: %s", err.Error())
 		return
 	}
-	io.Copy(conn, os.Stdin)
+
+	buf := make([]byte, 2)
+	if n, err := oldScon.Read(buf); err != nil {
+		fmt.Fprintf(os.Stderr, "Read failed: %s", err.Error())
+		return
+	} else {
+		fmt.Fprintln(os.Stdout, string(buf[:n]))
+	}
+
+	fmt.Fprintln(os.Stdout, "close old connection")
+
+	oldScon.Close()
+	oldScon.Write([]byte("!!!! no dropped !!!!"))
+
+	new, err := net.Dial("tcp", addr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Connect failed: %s", err.Error())
+		return
+	}
+
+	scon := scp.Client(new, oldScon)
+	if _, err := scon.Write([]byte("world\n")); err != nil {
+		fmt.Fprintf(os.Stderr, "Write failed: %s", err.Error())
+		return
+	}
+
+	go io.Copy(os.Stdout, scon)
+	if _, err := io.Copy(scon, os.Stdin); err != nil {
+		fmt.Fprintf(os.Stderr, "Copy failed: %s", err.Error())
+	}
 }

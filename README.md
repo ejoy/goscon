@@ -18,7 +18,7 @@ Client->Server: 传输一个 2 byte size(big-endian) + content 的包, size == l
 
 ```
 0\n
-base64(DHPublicKey)\n
+base64(DHPublicKey)
 ```
 
 DHPublicKey 是一个 8 bytes 值, 经过 DH 算法计算出来的 key
@@ -32,7 +32,7 @@ Server->Client: 回应给 Client 一个握手信息:
 
 ```
 id\n
-base64(DHPublicKey)\n
+base64(DHPublicKey)
 ```
 
 这里, id 是一个 10 进制的非 0 数字串. 建议在 [1,2^32) 之间. 因为实现可能利用 uint32_t 保存这个 id .
@@ -56,7 +56,7 @@ Client->Server: 传输一个 2 byte size(big-endian) + content 的包, size == l
 id\n
 index\n
 recvnumber\n
-base64(HMAC_CODE)\n
+base64(HMAC_CODE)
 ```
 
 这里 id 为新建连接时, 服务器交给 Client 的 id .
@@ -73,7 +73,7 @@ Server->Client: 回应握手消息:
 
 ```
 recvnumber\n
-CODE msg\n
+CODE msg
 ```
 
 这里, recvnumber 是一个 10 进制数字, 表示 (曾经在这个会话上, 服务器收到过客户端发出的多少字节 mod 2^32).
