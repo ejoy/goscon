@@ -15,14 +15,15 @@ type cipherConnReader struct {
 	sync.Mutex
 	rd     io.Reader
 	cipher *rc4.Cipher
-	count  uint32 // bytes read
+	count  int // bytes read
 }
 
 type cipherConnWriter struct {
 	sync.Mutex
 	wr     io.Writer
 	cipher *rc4.Cipher
-	count  uint32 // bytes writed
+	count  int // bytes writed
+	buf    []byte
 }
 
 func genRC4Key(v1 leu64, v2 leu64, key []byte) {
@@ -36,7 +37,7 @@ func (c *cipherConnReader) SetReader(rd io.Reader) {
 	c.rd = rd
 }
 
-func (c *cipherConnReader) GetBytesReceived() uint32 {
+func (c *cipherConnReader) GetBytesReceived() int {
 	return c.count
 }
 
@@ -48,7 +49,7 @@ func (c *cipherConnReader) Read(p []byte) (n int, err error) {
 		return
 	}
 	c.cipher.XORKeyStream(p[:n], p[:n])
-	c.count += uint32(n)
+	c.count += n
 	return
 }
 
@@ -58,16 +59,18 @@ func (c *cipherConnWriter) SetWriter(wr io.Writer) {
 	c.wr = wr
 }
 
-func (c *cipherConnWriter) GetBytesSent() uint32 {
+func (c *cipherConnWriter) GetBytesSent() int {
 	return c.count
 }
 
 func (c *cipherConnWriter) Write(b []byte) (int, error) {
 	c.Lock()
 	defer c.Unlock()
-	c.cipher.XORKeyStream(b, b)
-	c.count += uint32(len(b))
-	return c.wr.Write(b)
+	c.buf = c.buf[:0]
+	c.buf = append(c.buf, b...)
+	c.cipher.XORKeyStream(c.buf, c.buf)
+	c.count += len(c.buf)
+	return c.wr.Write(c.buf)
 }
 
 func deepCopyCipherConnReader(in *cipherConnReader) *cipherConnReader {
@@ -81,6 +84,7 @@ func deepCopyCipherConnWriter(out *cipherConnWriter) *cipherConnWriter {
 	return &cipherConnWriter{
 		cipher: &(*out.cipher),
 		count:  out.count,
+		buf:    make([]byte, 1024),
 	}
 }
 
@@ -112,8 +116,8 @@ func newCipherConnWriter(secret leu64) *cipherConnWriter {
 
 type Conn struct {
 	// constant
-	conn     net.Conn
-	isClient bool
+	conn      net.Conn
+	scpServer SCPServer
 
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
@@ -129,6 +133,29 @@ type Conn struct {
 	secret     leu64
 
 	sentCache *loopBuffer
+}
+
+func (c *Conn) initNewConn(id int, secret leu64) {
+	c.id = id
+	c.secret = secret
+	c.sentCache = newLoopBuffer(SentCacheSize)
+
+	c.in = newCipherConnReader(c.secret)
+	c.out = newCipherConnWriter(c.secret)
+	c.in.SetReader(c.conn)
+	c.out.SetWriter(io.MultiWriter(c.sentCache, c.conn))
+}
+
+func (c *Conn) initReuseConn(oldConn *Conn, handshakes int) {
+	c.id = oldConn.id
+	c.handshakes = handshakes
+	c.secret = oldConn.secret
+
+	c.sentCache = deepCopyLoopBuffer(oldConn.sentCache)
+	c.in = deepCopyCipherConnReader(oldConn.in)
+	c.out = deepCopyCipherConnWriter(oldConn.out)
+	c.in.SetReader(c.conn)
+	c.out.SetWriter(io.MultiWriter(c.sentCache, c.conn))
 }
 
 func (c *Conn) writeRecord(msg handshakeMessage) error {
@@ -171,7 +198,7 @@ func (c *Conn) clientReuseHandshake() error {
 	rq := &reuseConnReq{
 		id:         c.id,
 		handshakes: c.handshakes,
-		received:   c.in.GetBytesReceived(),
+		received:   uint32(c.in.GetBytesReceived()),
 	}
 
 	// fill checksum
@@ -189,13 +216,13 @@ func (c *Conn) clientReuseHandshake() error {
 		return err
 	}
 
-	diff := c.out.GetBytesSent() - rp.received
-	if diff < 0 {
+	diff := c.out.GetBytesSent() - int(rp.received)
+	if diff < 0 || diff > c.sentCache.Len() {
 		return ErrNotAcceptable
 	}
 
 	if diff > 0 {
-		lastBytes, err := c.sentCache.ReadLastBytes(int(diff))
+		lastBytes, err := c.sentCache.ReadLastBytes(diff)
 		if err != nil {
 			return err
 		}
@@ -231,15 +258,7 @@ func (c *Conn) clientNewHandshake() error {
 	}
 
 	secret := dh64.Secret(priKey, np.key.Uint64())
-
-	c.id = np.id
-	c.secret = toLeu64(secret)
-	c.sentCache = newLoopBuffer(SentCacheSize)
-
-	c.in = newCipherConnReader(c.secret)
-	c.out = newCipherConnWriter(c.secret)
-	c.in.SetReader(c.conn)
-	c.out.SetWriter(io.MultiWriter(c.sentCache, c.conn))
+	c.initNewConn(np.id, toLeu64(secret))
 	return nil
 }
 
@@ -251,7 +270,79 @@ func (c *Conn) clientHandshake() error {
 	}
 }
 
+func (c *Conn) serverReuseHandshake(rq *reuseConnReq) error {
+	oldConn := c.scpServer.QueryByID(rq.id)
+	if oldConn == nil {
+		return ErrIDNotFound
+	}
+
+	if !rq.verifySum(oldConn.secret) {
+		return ErrUnauthorized
+	}
+
+	if oldConn.handshakes >= rq.handshakes {
+		return ErrIndexExpired
+	}
+
+	// all check pass, close old
+	oldConn = c.scpServer.CloseByID(rq.id)
+
+	// double check
+	if oldConn == nil {
+		return ErrIDNotFound
+	}
+
+	diff := oldConn.out.GetBytesSent() - int(rq.received)
+	if diff < 0 || diff > oldConn.sentCache.Len() {
+		return ErrNotAcceptable
+	}
+	c.initReuseConn(oldConn, rq.handshakes)
+
+	if diff > 0 {
+		lastBytes, err := c.sentCache.ReadLastBytes(int(diff))
+		if err != nil {
+			return err
+		}
+
+		if _, err = c.conn.Write(lastBytes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Conn) serverNewHandshake(nq *newConnReq) error {
+	priKey := dh64.PrivateKey()
+	pubKey := dh64.PublicKey(priKey)
+
+	id := c.scpServer.AcquireID()
+
+	np := &newConnResp{
+		id:  id,
+		key: toLeu64(pubKey),
+	}
+
+	if err := c.writeRecord(np); err != nil {
+		return err
+	}
+
+	secret := dh64.Secret(priKey, nq.key.Uint64())
+	c.initNewConn(id, toLeu64(secret))
+	return nil
+}
+
 func (c *Conn) serverHandshake() error {
+	var sq serverReq
+	if err := c.readRecord(&sq); err != nil {
+		return err
+	}
+
+	switch q := sq.msg.(type) {
+	case *newConnReq:
+		return c.serverNewHandshake(q)
+	case *reuseConnReq:
+		return c.serverReuseHandshake(q)
+	}
 	return nil
 }
 
@@ -266,7 +357,7 @@ func (c *Conn) Handshake() error {
 		return nil
 	}
 
-	if c.isClient {
+	if c.scpServer == nil {
 		c.handshakeErr = c.clientHandshake()
 	} else {
 		c.handshakeErr = c.serverHandshake()

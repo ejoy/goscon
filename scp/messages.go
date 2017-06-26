@@ -1,6 +1,7 @@
 package scp
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"strconv"
@@ -93,6 +94,11 @@ type reuseConnReq struct {
 	sum        leu64 // checksum
 }
 
+func (r *reuseConnReq) verifySum(secret leu64) bool {
+	s := fmt.Sprintf("%d\n%d\n%d\n", r.id, r.handshakes, r.received)
+	sum := hmac(hash([]byte(s)), secret)
+	return bytes.Equal(r.sum[:], sum[:])
+}
 func (r *reuseConnReq) setSum(secret leu64) {
 	s := fmt.Sprintf("%d\n%d\n%d\n", r.id, r.handshakes, r.received)
 	r.sum = hmac(hash([]byte(s)), secret)
@@ -161,13 +167,26 @@ func (r *reuseConnResp) unmarshal(s []byte) (err error) {
 }
 
 type serverReq struct {
-	req handshakeMessage
+	msg handshakeMessage
 }
 
 func (r *serverReq) marshal() []byte {
-	return nil
+	panic("serverReq marshal")
 }
 
-func (r *serverReq) unmarshal([]byte) error {
+func (r *serverReq) unmarshal(s []byte) error {
+	if strings.HasPrefix(string(s), "0\n") {
+		var nq newConnReq
+		if err := nq.unmarshal(s); err != nil {
+			return err
+		}
+		r.msg = &nq
+	} else {
+		var rq reuseConnReq
+		if err := rq.unmarshal(s); err != nil {
+			return err
+		}
+		r.msg = &rq
+	}
 	return nil
 }

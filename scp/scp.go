@@ -2,35 +2,39 @@
 package scp
 
 import (
-	"io"
 	"net"
 )
 
-func Server(conn net.Conn) *Conn {
-	return nil
+type SCPServer interface {
+	// allocate a id for connection
+	AcquireID() int
+
+	// query a conneciton by id
+	QueryByID(id int) *Conn
+
+	// close a conneciton by id
+	CloseByID(id int) *Conn
+}
+
+func Server(conn net.Conn, ss SCPServer) *Conn {
+	c := &Conn{
+		conn:      conn,
+		scpServer: ss,
+	}
+
+	return c
 }
 
 func Client(conn net.Conn, oldConn *Conn) *Conn {
 	c := &Conn{
-		conn:     conn,
-		isClient: true,
+		conn: conn,
 	}
 
 	if oldConn != nil {
 		if oldConn.id == 0 {
 			panic("oldConn.id == 0")
 		}
-
-		c.id = oldConn.id
-		c.handshakes = oldConn.handshakes + 1
-		c.secret = oldConn.secret
-
-		c.sentCache = deepCopyLoopBuffer(oldConn.sentCache)
-		c.in = deepCopyCipherConnReader(oldConn.in)
-		c.out = deepCopyCipherConnWriter(oldConn.out)
-
-		c.in.SetReader(conn)
-		c.out.SetWriter(io.MultiWriter(c.sentCache, conn))
+		c.initReuseConn(oldConn, oldConn.handshakes+1)
 	}
 	return c
 }
