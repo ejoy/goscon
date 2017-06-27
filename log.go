@@ -14,6 +14,7 @@ import (
 )
 
 var logger *log.Logger
+var logLevel int
 
 func init() {
 	//logger = log.New(io.Writer(os.Stderr), "", log.Ldate | log.Lmicroseconds | log.Lshortfile)
@@ -26,19 +27,19 @@ func _print(format string, a ...interface{}) {
 }
 
 func Debug(format string, a ...interface{}) {
-	if options.LogLevel > 2 {
+	if logLevel > 2 {
 		_print(format, a...)
 	}
 }
 
 func Info(format string, a ...interface{}) {
-	if options.LogLevel > 1 {
+	if logLevel > 1 {
 		_print(format, a...)
 	}
 }
 
 func Error(format string, a ...interface{}) {
-	if options.LogLevel > 0 {
+	if logLevel > 0 {
 		_print(format, a...)
 	}
 }

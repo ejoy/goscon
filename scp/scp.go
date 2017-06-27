@@ -9,6 +9,9 @@ type SCPServer interface {
 	// allocate a id for connection
 	AcquireID() int
 
+	// release a id if handshake failed
+	ReleaseID(id int)
+
 	// query a conneciton by id
 	QueryByID(id int) *Conn
 

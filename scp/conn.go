@@ -133,6 +133,8 @@ type Conn struct {
 	secret     leu64
 
 	sentCache *loopBuffer
+
+	reused bool // reused conn
 }
 
 func (c *Conn) initNewConn(id int, secret leu64) {
@@ -144,6 +146,8 @@ func (c *Conn) initNewConn(id int, secret leu64) {
 	c.out = newCipherConnWriter(c.secret)
 	c.in.SetReader(c.conn)
 	c.out.SetWriter(io.MultiWriter(c.sentCache, c.conn))
+
+	c.reused = false
 }
 
 func (c *Conn) initReuseConn(oldConn *Conn, handshakes int) {
@@ -156,6 +160,8 @@ func (c *Conn) initReuseConn(oldConn *Conn, handshakes int) {
 	c.out = deepCopyCipherConnWriter(oldConn.out)
 	c.in.SetReader(c.conn)
 	c.out.SetWriter(io.MultiWriter(c.sentCache, c.conn))
+
+	c.reused = true
 }
 
 func (c *Conn) writeRecord(msg handshakeMessage) error {
@@ -316,13 +322,13 @@ func (c *Conn) serverNewHandshake(nq *newConnReq) error {
 	pubKey := dh64.PublicKey(priKey)
 
 	id := c.scpServer.AcquireID()
-
 	np := &newConnResp{
 		id:  id,
 		key: toLeu64(pubKey),
 	}
 
 	if err := c.writeRecord(np); err != nil {
+		c.scpServer.ReleaseID(id)
 		return err
 	}
 
@@ -425,4 +431,16 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 
 func (c *Conn) Close() error {
 	return c.conn.Close()
+}
+
+func (c *Conn) RawConn() net.Conn {
+	return c.conn
+}
+
+func (c *Conn) ID() int {
+	return c.id
+}
+
+func (c *Conn) IsReused() bool {
+	return c.reused
 }
