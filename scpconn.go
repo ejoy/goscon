@@ -176,8 +176,8 @@ func (s *SCPConn) RawConn() *scp.Conn {
 	return s.Conn
 }
 
-func NewSCPConn(conn *scp.Conn, resueTimeout time.Duration) *SCPConn {
-	scpConn := &SCPConn{Conn: conn}
+func NewSCPConn(scon *scp.Conn, resueTimeout time.Duration) *SCPConn {
+	scpConn := &SCPConn{Conn: scon}
 	scpConn.connCond = sync.NewCond(&scpConn.connMutex)
 	scpConn.reuseTimeout = resueTimeout
 	return scpConn

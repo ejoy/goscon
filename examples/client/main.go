@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	crand "crypto/rand"
 	"flag"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"net"
 	"os"
 
-	"bytes"
 	"github.com/ejoy/goscon/scp"
 )
 
@@ -40,7 +40,6 @@ func startEchoServer(laddr string) (net.Listener, error) {
 }
 
 func testEchoWrite(conn net.Conn, times int, ch chan<- []byte, done chan<- error) {
-
 	for i := 0; i < times; i++ {
 		sz := mrand.Intn(PACKSIZE_MAX-PACKSIZE_MIN) + PACKSIZE_MIN
 		buf := make([]byte, sz)
@@ -156,7 +155,7 @@ func main() {
 	var sconServer string
 	var concurrent int
 
-	flag.IntVar(&concurrent, "concurrent", 100, "concurrent connections")
+	flag.IntVar(&concurrent, "concurrent", 1, "concurrent connections")
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
 	flag.StringVar(&sconServer, "sconServer", "127.0.0.1:1248", "connect to scon server")
 	flag.Parse()

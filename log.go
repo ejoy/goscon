@@ -8,9 +8,8 @@ package main
 import (
 	"io"
 	"log"
-	"math/rand"
 	"os"
-	"time"
+	"runtime"
 )
 
 var logger *log.Logger
@@ -19,7 +18,6 @@ var logLevel int
 func init() {
 	//logger = log.New(io.Writer(os.Stderr), "", log.Ldate | log.Lmicroseconds | log.Lshortfile)
 	logger = log.New(io.Writer(os.Stderr), "", log.Ldate|log.Lmicroseconds)
-	rand.Seed(time.Now().Unix())
 }
 
 func _print(format string, a ...interface{}) {
@@ -51,4 +49,17 @@ func Panic(format string, a ...interface{}) {
 
 func Log(format string, a ...interface{}) {
 	_print(format, a...)
+}
+
+func LogCurStack(format string, a ...interface{}) {
+	_print(format, a...)
+	buf := make([]byte, 8192)
+	runtime.Stack(buf, false)
+	_print("!!!!!stack!!!!!: %s", buf)
+}
+
+func Recover() {
+	if err := recover(); err != nil {
+		LogCurStack("goroutine failed:%v", err)
+	}
 }

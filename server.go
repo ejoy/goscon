@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -22,18 +21,42 @@ type ConnPair struct {
 	RemoteConn *SCPConn     // client <-> scp server
 }
 
-func copyUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int64) error {
-	n, err := io.Copy(dst, src)
+func copyUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
+	var err error
+	var written int
+	buf := make([]byte, 32*1024)
+	for {
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw > 0 {
+				written += nw
+			}
+			if ew != nil {
+				err = ew
+				break
+			}
+		}
+		if er != nil {
+			err = er
+			break
+		}
+	}
 	src.CloseRead()
 	dst.CloseWrite()
-	ch <- n
+	ch <- written
 	return err
+}
+
+func (p *ConnPair) Reuse(scon *scp.Conn) {
+	Info("<%d> reuse, change remote from [%s:%s] to [%s:%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), scon.LocalAddr(), scon.RemoteAddr())
+	p.RemoteConn.SetConn(scon)
 }
 
 func (p *ConnPair) Pump() {
 	Info("<%d> new pair [%s:%s] [%s:%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr())
-	downloadCh := make(chan int64)
-	uploadCh := make(chan int64)
+	downloadCh := make(chan int)
+	uploadCh := make(chan int)
 	go copyUntilClose(p.LocalConn, p.RemoteConn, downloadCh)
 	go copyUntilClose(p.RemoteConn, p.LocalConn, uploadCh)
 	download := <-downloadCh
@@ -75,9 +98,8 @@ func (ss *SCPServer) NumOfConnPairs() int {
 }
 
 func (ss *SCPServer) CloseByID(id int) *scp.Conn {
-	ss.connPairMutex.Lock()
-	defer ss.connPairMutex.Unlock()
-	pair := ss.connPairs[id]
+	pair := ss.GetConnPair(id)
+
 	if pair != nil {
 		pair.RemoteConn.CloseForReuse()
 		return pair.RemoteConn.RawConn()
@@ -85,14 +107,70 @@ func (ss *SCPServer) CloseByID(id int) *scp.Conn {
 	return nil
 }
 
-func (ss *SCPServer) onReusedConn(conn *scp.Conn) {
+func (ss *SCPServer) AddConnPair(id int, pair *ConnPair) {
+	ss.connPairMutex.Lock()
+	defer ss.connPairMutex.Unlock()
+	if _, ok := ss.connPairs[id]; ok {
+		Panic("ConnPair conflict: id<%d>", id)
+	}
+	ss.connPairs[id] = pair
 }
 
-func (ss *SCPServer) onNewConn(conn *scp.Conn) {
-	defer ss.ReleaseID(conn.ID())
+func (ss *SCPServer) RemoveConnPair(id int) {
+	ss.connPairMutex.Lock()
+	defer ss.connPairMutex.Unlock()
+	delete(ss.connPairs, id)
+}
+
+func (ss *SCPServer) GetConnPair(id int) *ConnPair {
+	ss.connPairMutex.Lock()
+	defer ss.connPairMutex.Unlock()
+	return ss.connPairs[id]
+}
+
+func (ss *SCPServer) onReusedConn(scon *scp.Conn) {
+	id := scon.ID()
+	pair := ss.GetConnPair(id)
+
+	if pair != nil {
+		pair.Reuse(scon)
+	}
+}
+
+func (ss *SCPServer) onNewConn(scon *scp.Conn) {
+	id := scon.ID()
+	defer ss.ReleaseID(id)
+
+	connPair := &ConnPair{}
+	connPair.RemoteConn = NewSCPConn(scon, ss.reuseTimeout)
+	// hold conn pair for reuse
+	ss.AddConnPair(id, connPair)
+	defer ss.RemoveConnPair(id)
+
+	host := glbTargetPool.GetTarget()
+	if host == nil {
+		scon.Close()
+		Error("choose host failed:%v", scon.RemoteAddr())
+		return
+	}
+
+	localConn, err := net.DialTCP("tcp", nil, host.addr)
+	if err != nil {
+		scon.Close()
+		Error("connect to %s failed: %s", host.addr, err.Error())
+		return
+	}
+
+	localConn.SetKeepAlive(true)
+	localConn.SetKeepAlivePeriod(time.Second * 60)
+	connPair.LocalConn = localConn
+
+	connPair.Pump()
 }
 
 func (ss *SCPServer) handleClient(conn *net.TCPConn) {
+	defer Recover()
+
 	scon := scp.Server(conn, ss)
 	if err := scon.Handshake(); err != nil {
 		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())

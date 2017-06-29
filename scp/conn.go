@@ -66,11 +66,18 @@ func (c *cipherConnWriter) GetBytesSent() int {
 func (c *cipherConnWriter) Write(b []byte) (int, error) {
 	c.Lock()
 	defer c.Unlock()
-	c.buf = c.buf[:0]
-	c.buf = append(c.buf, b...)
-	c.cipher.XORKeyStream(c.buf, c.buf)
-	c.count += len(c.buf)
-	return c.wr.Write(c.buf)
+
+	sz := len(b)
+	if sz > cap(c.buf) {
+		c.buf = make([]byte, sz*2)
+	}
+
+	buf := c.buf[:sz]
+	copy(buf, b)
+	c.cipher.XORKeyStream(buf, buf)
+	c.count += sz
+	_, err := c.wr.Write(buf)
+	return sz, err
 }
 
 func deepCopyCipherConnReader(in *cipherConnReader) *cipherConnReader {
@@ -84,7 +91,6 @@ func deepCopyCipherConnWriter(out *cipherConnWriter) *cipherConnWriter {
 	return &cipherConnWriter{
 		cipher: &(*out.cipher),
 		count:  out.count,
-		buf:    make([]byte, 1024),
 	}
 }
 
@@ -277,32 +283,57 @@ func (c *Conn) clientHandshake() error {
 }
 
 func (c *Conn) serverReuseHandshake(rq *reuseConnReq) error {
-	oldConn := c.scpServer.QueryByID(rq.id)
-	if oldConn == nil {
-		return ErrIDNotFound
+	code := SCPStatusOK
+	diff := 0
+
+OuterLoop:
+	for {
+		oldConn := c.scpServer.QueryByID(rq.id)
+		if oldConn == nil {
+			code = SCPStatusIDNotFound
+			break OuterLoop
+		}
+
+		if !rq.verifySum(oldConn.secret) {
+			code = SCPStatusUnauthorized
+			break OuterLoop
+		}
+
+		if oldConn.handshakes >= rq.handshakes {
+			code = SCPStatusExpired
+			break OuterLoop
+		}
+
+		// all check pass, close old
+		oldConn = c.scpServer.CloseByID(rq.id)
+
+		// double check
+		if oldConn == nil {
+			code = SCPStatusIDNotFound
+			break OuterLoop
+		}
+
+		diff = oldConn.out.GetBytesSent() - int(rq.received)
+		if diff < 0 || diff > oldConn.sentCache.Len() {
+			code = SCPStatusNotAcceptable
+			break OuterLoop
+		}
+		c.initReuseConn(oldConn, rq.handshakes)
+		break OuterLoop
 	}
 
-	if !rq.verifySum(oldConn.secret) {
-		return ErrUnauthorized
+	rp := &reuseConnResp{
+		received: uint32(c.in.GetBytesReceived()),
+		code:     code,
 	}
 
-	if oldConn.handshakes >= rq.handshakes {
-		return ErrIndexExpired
+	if err := c.writeRecord(rp); err != nil {
+		return err
 	}
 
-	// all check pass, close old
-	oldConn = c.scpServer.CloseByID(rq.id)
-
-	// double check
-	if oldConn == nil {
-		return ErrIDNotFound
+	if err := newError(code); err != nil {
+		return err
 	}
-
-	diff := oldConn.out.GetBytesSent() - int(rq.received)
-	if diff < 0 || diff > oldConn.sentCache.Len() {
-		return ErrNotAcceptable
-	}
-	c.initReuseConn(oldConn, rq.handshakes)
 
 	if diff > 0 {
 		lastBytes, err := c.sentCache.ReadLastBytes(int(diff))

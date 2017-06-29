@@ -100,7 +100,7 @@ const SIG_RELOAD = syscall.Signal(34)
 const SIG_STATUS = syscall.Signal(35)
 
 func reload() {
-	err := targetPool.Reload()
+	err := glbTargetPool.Reload()
 	if err != nil {
 		Log("reload failed: %s", err.Error())
 		return
@@ -115,7 +115,7 @@ func status() {
 		"actives:%d",
 		runtime.GOMAXPROCS(0), runtime.NumCPU(),
 		runtime.NumGoroutine(),
-		scpServer.NumOfConnPairs())
+		glbScpServer.NumOfConnPairs())
 }
 
 func handleSignal() {
@@ -134,8 +134,8 @@ func handleSignal() {
 	}
 }
 
-var scpServer *SCPServer
-var targetPool *TargetPool
+var glbScpServer *SCPServer
+var glbTargetPool *TargetPool
 
 func main() {
 	// deal with arguments
@@ -156,11 +156,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	targetPool = new(TargetPool)
-	targetPool.ConfigFile = args[0]
-	Info("config file: %s", targetPool.ConfigFile)
+	glbTargetPool = new(TargetPool)
+	glbTargetPool.ConfigFile = args[0]
+	Info("config file: %s", glbTargetPool.ConfigFile)
 
-	if err := targetPool.Reload(); err != nil {
+	if err := glbTargetPool.Reload(); err != nil {
 		Error("load target pool failed: %s", err.Error())
 		return
 	}
@@ -172,5 +172,4 @@ func main() {
 	go handleSignal()
 	scpServer := NewSCPServer(listen, reuseTimeout)
 	Log("server: %v", scpServer.Start())
-	// run
 }
