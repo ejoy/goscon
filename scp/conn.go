@@ -73,8 +73,7 @@ func (c *cipherConnWriter) Write(b []byte) (int, error) {
 	}
 
 	buf := c.buf[:sz]
-	copy(buf, b)
-	c.cipher.XORKeyStream(buf, buf)
+	c.cipher.XORKeyStream(buf, b)
 	c.count += sz
 	_, err := c.wr.Write(buf)
 	return sz, err
