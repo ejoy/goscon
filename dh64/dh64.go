@@ -15,7 +15,6 @@ func mulModP(a, b uint64) uint64 {
 		if b&1 > 0 {
 			t := p - a
 			if m >= t {
-
 				m -= t
 			} else {
 				m += a
@@ -58,9 +57,7 @@ func powmodp(a uint64, b uint64) uint64 {
 
 // KeyPair returns a pair of key
 func PrivateKey() uint64 {
-	a := uint64(rand.Uint32())
-	b := uint64(rand.Uint32()) + 1
-	return (a << 32) | b
+	return rand.Uint64()
 }
 
 // PublicKey returns the public key corresponding to the privateKey
