@@ -31,7 +31,9 @@ DHPublicKey = dh64.PublicKey(DHPrivateKey)
 Server->Client: 回应给 Client 一个握手信息:
 
 ```
-id\n
+
+
+
 base64(DHPublicKey)
 ```
 
@@ -77,18 +79,13 @@ CODE msg
 ```
 
 这里, recvnumber 是一个 10 进制数字, 表示 (曾经在这个会话上, 服务器收到过客户端发出的多少字节 mod 2^32).
-CODE 是一个10进制三位数, 表示连接是否恢复. msg 是具体信息:
+CODE 是一个10进制三位数, 表示连接是否恢复:
 
-200 OK
-	表示连接成功
-401 Unauthorized
-	表示 HMAC 计算错误
-403 Index Expired
-	表示 Index 已经使用过
-404 User Not Found
-	表示连接 id 已经无效
-406 Not Acceptable
-	表示 cache 的数据流不够
+* 200 OK : 表示连接成功
+* 401 Unauthorized : 表示 HMAC 计算错误
+* 403 Index Expired : 表示 Index 已经使用过
+* 404 User Not Found : 表示连接 id 已经无效
+* 406 Not Acceptable : 表示 cache 的数据流不够
 
 当连接恢复后, 服务器应当根据之前记录的发送出去的字节数（不计算每次握手包的字节）, 减去客户端通知它收到的字节数, 开始补发未收到的字节。
 客户端也做相同的事情。
