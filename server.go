@@ -24,7 +24,7 @@ type ConnPair struct {
 func copyUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
 	var err error
 	var written int
-	buf := make([]byte, 32*1024)
+	buf := make([]byte, scp.NetBufferSize)
 	for {
 		nr, er := src.Read(buf)
 		if nr > 0 {

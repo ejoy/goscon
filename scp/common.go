@@ -4,6 +4,7 @@ import (
 	"fmt"
 )
 
+var NetBufferSize = 32 * 1024
 var SentCacheSize = 64 * 1024 // 64k
 
 const (

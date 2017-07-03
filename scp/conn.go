@@ -117,6 +117,7 @@ func newCipherConnWriter(secret leu64) *cipherConnWriter {
 	c, _ := rc4.NewCipher(key)
 	return &cipherConnWriter{
 		cipher: c,
+		buf:    make([]byte, NetBufferSize),
 	}
 }
 
@@ -384,6 +385,10 @@ func (c *Conn) serverHandshake() error {
 }
 
 func (c *Conn) Handshake() error {
+	if c.handshakeComplete {
+		return nil
+	}
+
 	c.handshakeMutex.Lock()
 	defer c.handshakeMutex.Unlock()
 
