@@ -145,6 +145,14 @@ func (s *SCPConn) SetConn(conn *scp.Conn) {
 func (s *SCPConn) CloseForReuse() {
 	s.setError(errConnClosed)
 	s.Conn.Close()
+
+	// not reading
+	s.rd.Lock()
+	s.rd.Unlock()
+
+	// not writing
+	s.wr.Lock()
+	s.wr.Unlock()
 }
 
 func (s *SCPConn) Close() error {

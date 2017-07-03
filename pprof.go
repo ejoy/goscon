@@ -1,3 +1,5 @@
+// +build debug
+
 package main
 
 import (
@@ -13,7 +15,7 @@ func init() {
 		log.Print(err)
 		return
 	}
-	log.Print("listen on ", ln.Addr().String())
+	log.Print("pprof listen on ", ln.Addr().String())
 	go func() {
 		log.Print(http.Serve(ln, nil))
 	}()
