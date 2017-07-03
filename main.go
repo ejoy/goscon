@@ -137,6 +137,8 @@ func handleSignal() {
 var glbScpServer *SCPServer
 var glbTargetPool *TargetPool
 
+var optUploadMinPacket, optUploadMaxDelay int
+
 func main() {
 	// deal with arguments
 	var listen string
@@ -147,6 +149,8 @@ func main() {
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
 	flag.IntVar(&reuseTimeout, "timeout", 30, "reuse timeout")
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
+	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
+	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
 	flag.Usage = usage
 	flag.Parse()
 

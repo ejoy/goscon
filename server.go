@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ejoy/goscon/scp"
+	"io"
 )
 
 var ReuseTimeout = 300 * time.Second
@@ -21,7 +22,7 @@ type ConnPair struct {
 	RemoteConn *SCPConn     // client <-> scp server
 }
 
-func copyUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
+func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
 	var err error
 	var written, packets int
 	buf := make([]byte, scp.NetBufferSize)
@@ -50,6 +51,49 @@ func copyUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
 	return err
 }
 
+func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
+	var err error
+	var written, packets int
+	buf := make([]byte, scp.NetBufferSize)
+
+	delay := time.Duration(optUploadMaxDelay) * time.Millisecond
+
+	for {
+		var nr int
+		var er error
+		if optUploadMaxDelay > 0 && delay > 0 {
+			src.SetReadDeadline(time.Now().Add(delay))
+			nr, er = io.ReadAtLeast(src, buf, optUploadMinPacket)
+		} else {
+			nr, er = src.Read(buf)
+		}
+
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw > 0 {
+				packets++
+				written += nw
+			}
+			if ew != nil {
+				err = ew
+				break
+			}
+		}
+		if er != nil {
+			if netError, ok := er.(net.Error); ok && netError.Timeout() {
+				continue
+			}
+			err = er
+			break
+		}
+	}
+	src.CloseRead()
+	dst.CloseWrite()
+	ch <- written
+	ch <- packets
+	return err
+}
+
 func (p *ConnPair) Reuse(scon *scp.Conn) {
 	Info("<%d> reuse, change remote from [%s><%s] to [%s><%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), scon.LocalAddr(), scon.RemoteAddr())
 	p.RemoteConn.SetConn(scon)
@@ -59,8 +103,10 @@ func (p *ConnPair) Pump() {
 	Info("<%d> new pair [%s><%s] [%s><%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr())
 	downloadCh := make(chan int)
 	uploadCh := make(chan int)
-	go copyUntilClose(p.LocalConn, p.RemoteConn, downloadCh)
-	go copyUntilClose(p.RemoteConn, p.LocalConn, uploadCh)
+
+	go downloadUntilClose(p.LocalConn, p.RemoteConn, downloadCh)
+	go uploadUntilClose(p.RemoteConn, p.LocalConn, uploadCh)
+
 	dlData := <-downloadCh
 	dlPackets := <-downloadCh
 	dlSize := 0

@@ -60,11 +60,6 @@ func (s *SCPConn) setError(err error) {
 }
 
 func (s *SCPConn) lockIfNoError(mutex *sync.Mutex) error {
-	if s.connErr == nil {
-		mutex.Lock()
-		return nil
-	}
-
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
 	for {

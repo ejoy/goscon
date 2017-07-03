@@ -55,9 +55,14 @@ func powmodp(a uint64, b uint64) uint64 {
 	return powModP(a, b)
 }
 
-// KeyPair returns a pair of key
+// PrivateKey returns a private key
 func PrivateKey() uint64 {
-	return rand.Uint64()
+	for {
+		v := rand.Uint64()
+		if v != 0 {
+			return v
+		}
+	}
 }
 
 // PublicKey returns the public key corresponding to the privateKey
