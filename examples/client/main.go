@@ -127,7 +127,12 @@ func startEchoServer(laddr string) (net.Listener, error) {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
-				io.Copy(c, c)
+				if optVerbose {
+					wr := io.MultiWriter(c, os.Stdout)
+					io.Copy(wr, c)
+				} else {
+					io.Copy(c, c)
+				}
 			}(conn)
 		}
 	}()
@@ -154,6 +159,7 @@ func testN(addr string) {
 }
 
 var optConcurrent, optPackets, optMinPacket, optMaxPacket int
+var optVerbose bool
 
 func main() {
 	var echoServer string
@@ -165,12 +171,13 @@ func main() {
 	flag.IntVar(&optMaxPacket, "max", 100, "max packet size")
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
 	flag.StringVar(&sconServer, "sconServer", "127.0.0.1:1248", "connect to scon server")
+	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
 	flag.Parse()
 
 	if echoServer != "" {
 		ln, err := startEchoServer(echoServer)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "start echo server: %s", err.Error())
+			fmt.Fprintf(os.Stderr, "start echo server: %s\n", err.Error())
 			return
 		}
 		fmt.Fprintf(os.Stdout, "echo server: %s", ln.Addr())
