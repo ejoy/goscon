@@ -61,7 +61,7 @@ func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error
 	for {
 		var nr int
 		var er error
-		if optUploadMaxDelay > 0 && delay > 0 {
+		if optUploadMinPacket > 0 && delay > 0 {
 			src.SetReadDeadline(time.Now().Add(delay))
 			nr, er = io.ReadAtLeast(src, buf, optUploadMinPacket)
 		} else {
