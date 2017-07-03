@@ -23,13 +23,14 @@ type ConnPair struct {
 
 func copyUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
 	var err error
-	var written int
+	var written, packets int
 	buf := make([]byte, scp.NetBufferSize)
 	for {
 		nr, er := src.Read(buf)
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if nw > 0 {
+				packets++
 				written += nw
 			}
 			if ew != nil {
@@ -45,6 +46,7 @@ func copyUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
 	src.CloseRead()
 	dst.CloseWrite()
 	ch <- written
+	ch <- packets
 	return err
 }
 
@@ -59,10 +61,21 @@ func (p *ConnPair) Pump() {
 	uploadCh := make(chan int)
 	go copyUntilClose(p.LocalConn, p.RemoteConn, downloadCh)
 	go copyUntilClose(p.RemoteConn, p.LocalConn, uploadCh)
-	download := <-downloadCh
-	upload := <-uploadCh
-	Info("<%d> remove pair [%s><%s] [%s><%s], download:%d, upload:%d", p.RemoteConn.ID(),
-		p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr(), download, upload)
+	dlData := <-downloadCh
+	dlPackets := <-downloadCh
+	dlSize := 0
+	if dlData > 0 {
+		dlSize = dlData / dlPackets
+	}
+	ulData := <-uploadCh
+	ulPackets := <-uploadCh
+	ulSize := 0
+	if ulData > 0 {
+		ulSize = ulData / ulPackets
+	}
+	Info("<%d> remove pair [%s><%s] [%s><%s], download:(%d:%d:%d), upload:(%d:%d:%d)", p.RemoteConn.ID(),
+		p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr(),
+		dlData, dlPackets, dlSize, ulData, ulPackets, ulSize)
 }
 
 type SCPServer struct {

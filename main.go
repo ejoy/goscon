@@ -144,7 +144,7 @@ func main() {
 	var sentCacheSize int
 
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
-	flag.IntVar(&logLevel, "log", 3, "larger value for detail log")
+	flag.IntVar(&logLevel, "log", 0, "larger value for detail log")
 	flag.IntVar(&reuseTimeout, "timeout", 30, "reuse timeout")
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
 	flag.Usage = usage
