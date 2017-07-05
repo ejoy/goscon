@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	//"fmt"
 
 	"github.com/ejoy/goscon/scp"
 )
@@ -26,6 +27,15 @@ func getOldScon(sent string, connect string) (*scp.Conn, error) {
 		return nil, err
 	}
 	return scon, nil
+}
+
+type stdoutFormater struct {
+	*os.File
+}
+
+func (sf *stdoutFormater) Write(data []byte) (int, error) {
+	//return fmt.Fprintf(sf.File, "% x", data)
+	return sf.File.Write(data)
 }
 
 func main() {
@@ -50,6 +60,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	go io.Copy(os.Stdout, scon)
+	stdout := &stdoutFormater{os.Stdout}
+	go io.Copy(stdout, scon)
 	io.Copy(scon, os.Stdin)
 }
