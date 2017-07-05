@@ -32,9 +32,7 @@ DHPublicKey = dh64.PublicKey(DHPrivateKey)
 Server->Client: 回应给 Client 一个握手信息:
 
 ```
-
-
-
+id\n
 base64(DHPublicKey)
 ```
 
