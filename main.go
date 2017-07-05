@@ -37,19 +37,27 @@ type Config struct {
 	Hosts []Host
 }
 
-type TargetPool struct {
+type LocalConnWrapper interface {
+	Wrapper(local *net.TCPConn, remote net.Conn) (*net.TCPConn, error)
+}
+
+type LocalConnProvider struct {
 	sync.Mutex
 	hosts  []Host
 	weight int
 
+	wrapper LocalConnWrapper
+
 	ConfigFile string
 }
 
-func (tp *TargetPool) GetTarget() *Host {
-	if tp.weight <= 0 {
-		return nil
+func (tp *LocalConnProvider) MustSetWrapper(wrapper LocalConnWrapper) {
+	if tp.wrapper != nil {
+		panic("tp.wrapper != nil")
 	}
-
+	tp.wrapper = wrapper
+}
+func (tp *LocalConnProvider) GetHost() *Host {
 	v := rand.Intn(tp.weight)
 	for _, host := range tp.hosts {
 		if host.Weight >= v {
@@ -60,7 +68,27 @@ func (tp *TargetPool) GetTarget() *Host {
 	return nil
 }
 
-func (tp *TargetPool) reset(hosts []Host) error {
+func (tp *LocalConnProvider) CreateLocalConn(remoteConn net.Conn) (*net.TCPConn, error) {
+	host := glbLocalConnProvider.GetHost()
+	conn, err := net.DialTCP("tcp", nil, host.addr)
+	if err != nil {
+		return nil, err
+	}
+
+	if tp.wrapper == nil {
+		return conn, err
+	}
+
+	newConn, err := tp.wrapper.Wrapper(conn, remoteConn)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	return newConn, nil
+}
+
+func (tp *LocalConnProvider) reset(hosts []Host) error {
 	var weight int
 	for i := range hosts {
 		host := &hosts[i]
@@ -72,6 +100,10 @@ func (tp *TargetPool) reset(hosts []Host) error {
 		weight += host.Weight
 	}
 
+	if weight <= 0 {
+		return fmt.Errorf("no hosts")
+	}
+
 	tp.Lock()
 	tp.hosts = hosts
 	tp.weight = weight
@@ -79,7 +111,7 @@ func (tp *TargetPool) reset(hosts []Host) error {
 	return nil
 }
 
-func (tp *TargetPool) Reload() error {
+func (tp *LocalConnProvider) Reload() error {
 	fp, err := os.Open(tp.ConfigFile)
 	if err != nil {
 		return err
@@ -100,7 +132,7 @@ const SIG_RELOAD = syscall.Signal(34)
 const SIG_STATUS = syscall.Signal(35)
 
 func reload() {
-	err := glbTargetPool.Reload()
+	err := glbLocalConnProvider.Reload()
 	if err != nil {
 		Log("reload failed: %s", err.Error())
 		return
@@ -135,9 +167,21 @@ func handleSignal() {
 }
 
 var glbScpServer *SCPServer
-var glbTargetPool *TargetPool
+var glbLocalConnProvider *LocalConnProvider
 
 var optUploadMinPacket, optUploadMaxDelay int
+
+var glbWrapperHooks []func(provider *LocalConnProvider)
+
+func installWrapperHook(hook func(provider *LocalConnProvider)) {
+	glbWrapperHooks = append(glbWrapperHooks, hook)
+}
+
+func wrapperHook(provider *LocalConnProvider) {
+	for _, hook := range glbWrapperHooks {
+		hook(provider)
+	}
+}
 
 func main() {
 	// deal with arguments
@@ -160,14 +204,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	glbTargetPool = new(TargetPool)
-	glbTargetPool.ConfigFile = args[0]
-	Info("config file: %s", glbTargetPool.ConfigFile)
+	glbLocalConnProvider = new(LocalConnProvider)
+	glbLocalConnProvider.ConfigFile = args[0]
+	Info("config file: %s", glbLocalConnProvider.ConfigFile)
 
-	if err := glbTargetPool.Reload(); err != nil {
+	if err := glbLocalConnProvider.Reload(); err != nil {
 		Error("load target pool failed: %s", err.Error())
 		return
 	}
+
+	wrapperHook(glbLocalConnProvider)
 
 	if sentCacheSize > 0 {
 		scp.SentCacheSize = sentCacheSize

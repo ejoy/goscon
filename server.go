@@ -207,24 +207,14 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	ss.AddConnPair(id, connPair)
 	defer ss.RemoveConnPair(id)
 
-	host := glbTargetPool.GetTarget()
-	if host == nil {
-		scon.Close()
-		Error("choose host failed:%v", scon.RemoteAddr())
-		return
-	}
-
-	localConn, err := net.DialTCP("tcp", nil, host.addr)
+	localConn, err := glbLocalConnProvider.CreateLocalConn(scon)
 	if err != nil {
 		scon.Close()
-		Error("connect to %s failed: %s", host.addr, err.Error())
+		Error("create local connnection failed: %s", err.Error())
 		return
 	}
 
-	localConn.SetKeepAlive(true)
-	localConn.SetKeepAlivePeriod(time.Second * 60)
 	connPair.LocalConn = localConn
-
 	connPair.Pump()
 }
 
