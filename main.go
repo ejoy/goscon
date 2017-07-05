@@ -11,31 +11,19 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"syscall"
-	"time"
+
+	"github.com/ejoy/goscon/scp"
 )
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: %s [config]\n", os.Args[0])
 	flag.PrintDefaults()
 	os.Exit(1)
-}
-
-type Options struct {
-	ConfigFile string
-	LocalAddr  string
-	HttpAddr   string
-	LogLevel   uint
-	Timeout    uint
-	SendBuf    uint
-	MaxProcs   int
 }
 
 type Host struct {
@@ -45,93 +33,33 @@ type Host struct {
 	addr *net.TCPAddr
 }
 
-type Settings struct {
-	Hosts  []Host
+type Config struct {
+	Hosts []Host
+}
+
+type LocalConnWrapper interface {
+	Wrapper(local *net.TCPConn, remote net.Conn) (*net.TCPConn, error)
+}
+
+type LocalConnProvider struct {
+	sync.Mutex
+	hosts  []Host
 	weight int
+
+	wrapper LocalConnWrapper
+
+	ConfigFile string
 }
 
-type Status struct {
-	actives int32
-}
-
-type ReuseConn struct {
-	conn *net.TCPConn
-	req  *ReuseConnReq
-}
-
-type QueryRemoteAddr struct {
-	arg   string
-	retCh chan string
-}
-
-type ReuseError struct {
-	rc   *ReuseConn
-	code uint32
-}
-
-type Daemon struct {
-	// host list
-	settings *Settings
-
-	// listen port
-	ln     *net.TCPListener
-	wg     sync.WaitGroup
-	status Status
-
-	// next linkid
-	nextidCh chan uint32
-
-	// links
-	links map[uint32]*StableLink
-	addrs map[string]string
-
-	// event channel
-	// *StableLink new conn
-	// *ReuseConn reuse conn
-	eventCh chan interface{}
-	errCh   chan *ReuseError
-}
-
-var options Options
-var daemon Daemon
-
-func readSettings(config_file string) *Settings {
-	fp, err := os.Open(config_file)
-	if err != nil {
-		Error("open config file failed:%s", err.Error())
-		return nil
+func (tp *LocalConnProvider) MustSetWrapper(wrapper LocalConnWrapper) {
+	if tp.wrapper != nil {
+		panic("tp.wrapper != nil")
 	}
-	defer fp.Close()
-
-	var settings Settings
-	dec := json.NewDecoder(fp)
-	err = dec.Decode(&settings)
-	if err != nil {
-		Error("decode config file failed:%s", err.Error())
-		return nil
-	}
-
-	for i := range settings.Hosts {
-		host := &settings.Hosts[i]
-		host.addr, err = net.ResolveTCPAddr("tcp", host.Addr)
-		if err != nil {
-			Error("resolve local addr failed:%s", err.Error())
-			return nil
-		}
-		settings.weight += host.Weight
-	}
-
-	Info("config:%v", settings)
-	return &settings
+	tp.wrapper = wrapper
 }
-
-func chooseHost(weight int, hosts []Host) *Host {
-	if weight <= 0 {
-		return nil
-	}
-
-	v := rand.Intn(weight)
-	for _, host := range hosts {
+func (tp *LocalConnProvider) GetHost() *Host {
+	v := rand.Intn(tp.weight)
+	for _, host := range tp.hosts {
 		if host.Weight >= v {
 			return &host
 		}
@@ -140,187 +68,75 @@ func chooseHost(weight int, hosts []Host) *Host {
 	return nil
 }
 
-func onNewConn(source *net.TCPConn, req *NewConnReq) {
-	settings := daemon.settings
-	host := chooseHost(settings.weight, settings.Hosts)
-	if host == nil {
-		source.Close()
-		Error("choose host failed:%v", source.RemoteAddr())
-		return
-	}
-
-	dest, err := net.DialTCP("tcp", nil, host.addr)
+func (tp *LocalConnProvider) CreateLocalConn(remoteConn net.Conn) (*net.TCPConn, error) {
+	host := glbLocalConnProvider.GetHost()
+	conn, err := net.DialTCP("tcp", nil, host.addr)
 	if err != nil {
-		source.Close()
-		Error("connect to %s failed: %s", host.addr, err.Error())
-		return
+		return nil, err
 	}
 
-	dest.SetKeepAlive(true)
-	dest.SetKeepAlivePeriod(time.Second * 60)
-	dest.SetLinger(-1)
+	if tp.wrapper == nil {
+		return conn, err
+	}
 
-	id := <-daemon.nextidCh
-	link := NewStableLink(id, source, dest, req.key)
-	daemon.eventCh <- link
-	link.Run()
-	daemon.eventCh <- link
-	link.Wait()
-}
-
-func onReuseConn(source *net.TCPConn, req *ReuseConnReq) {
-	daemon.eventCh <- &ReuseConn{source, req}
-}
-
-func handleClient(source *net.TCPConn) {
-	atomic.AddInt32(&daemon.status.actives, 1)
-	defer func() {
-		atomic.AddInt32(&daemon.status.actives, -1)
-		daemon.wg.Done()
-	}()
-
-	Info("accept new connection: %v", source.RemoteAddr())
-
-	source.SetKeepAlive(true)
-	source.SetKeepAlivePeriod(time.Second * 60)
-	source.SetLinger(-1)
-
-	// read req
-	// set read request timeout
-	source.SetReadDeadline(time.Now().Add(time.Second * 30))
-	err, req := ReadReq(source)
+	newConn, err := tp.wrapper.Wrapper(conn, remoteConn)
 	if err != nil {
-		source.Close()
-		Error("conn:%v, read req failed: %v", source.RemoteAddr(), err)
-		return
+		conn.Close()
+		return nil, err
 	}
 
-	// cancel read timeout
-	var t time.Time
-	source.SetReadDeadline(t)
-
-	// judge: new conn or reuse conn
-	switch req := req.(type) {
-	case *NewConnReq:
-		Info("new conn request:%v", req)
-		onNewConn(source, req)
-	case *ReuseConnReq:
-		Info("reuse conn request:%v", req)
-		onReuseConn(source, req)
-	default:
-		Info("unknown request:%v", req)
-		source.Close()
-		return
-	}
-	Info("connection close: %v", source.RemoteAddr())
+	return newConn, nil
 }
 
-func onEventLink(link *StableLink) {
-	if !link.IsBroken() {
-		daemon.links[link.id] = link
-		daemon.addrs[link.local.LocalAddr().String()] = link.remote.RemoteAddr().String()
-	} else {
-		delete(daemon.links, link.id)
-		delete(daemon.addrs, link.local.LocalAddr().String())
-		daemon.nextidCh <- link.id
-	}
-}
-
-func onEventReuse(rc *ReuseConn) {
-	link := daemon.links[rc.req.id]
-	var code uint32
-	if link == nil {
-		code = 404
-	} else {
-		code = link.VerifyReuse(rc.req)
-	}
-	if code == 200 {
-		link.Reuse(rc)
-	} else {
-		daemon.errCh <- &ReuseError{rc, code}
-	}
-}
-
-func onEventQueryRemoteAddr(req *QueryRemoteAddr) {
-	remote_addr := daemon.addrs[req.arg]
-	// Debug("onEventQueryRemoteAddr, arg:%s, ret:%s", req.arg, remote_addr)
-	req.retCh <- remote_addr
-}
-
-func dispatch() {
-	for {
-		event := <-daemon.eventCh
-		switch event := event.(type) {
-		case *StableLink:
-			onEventLink(event)
-		case *ReuseConn:
-			onEventReuse(event)
-		case *QueryRemoteAddr:
-			onEventQueryRemoteAddr(event)
+func (tp *LocalConnProvider) reset(hosts []Host) error {
+	var weight int
+	for i := range hosts {
+		host := &hosts[i]
+		if addr, err := net.ResolveTCPAddr("tcp", host.Addr); err != nil {
+			return err
+		} else {
+			host.addr = addr
 		}
+		weight += host.Weight
 	}
+
+	if weight <= 0 {
+		return fmt.Errorf("no hosts")
+	}
+
+	tp.Lock()
+	tp.hosts = hosts
+	tp.weight = weight
+	tp.Unlock()
+	return nil
 }
 
-func dispatchErr() {
-	for {
-		e, ok := <-daemon.errCh
-		if !ok {
-			break
-		}
-		Error("link(%d) reuse failed:%d", e.rc.req.id, e.code)
-		e.rc.conn.SetWriteDeadline(time.Now().Add(time.Second))
-		WriteReuseConnResp(e.rc.conn, 0, e.code)
-		e.rc.conn.Close()
-	}
-}
-
-func start() {
-	daemon.wg.Add(1)
-	defer func() {
-		daemon.wg.Done()
-	}()
-
-	laddr, err := net.ResolveTCPAddr("tcp", options.LocalAddr)
+func (tp *LocalConnProvider) Reload() error {
+	fp, err := os.Open(tp.ConfigFile)
 	if err != nil {
-		Error("resolve local addr failed:%s", err.Error())
-		return
+		return err
 	}
+	defer fp.Close()
 
-	ln, err := net.ListenTCP("tcp", laddr)
+	var config Config
+	dec := json.NewDecoder(fp)
+	err = dec.Decode(&config)
 	if err != nil {
-		Error("build listener failed:%s", err.Error())
-		return
+		return err
 	}
 
-	daemon.ln = ln
-	go dispatch()
-	go dispatchErr()
-	for {
-		conn, err := daemon.ln.AcceptTCP()
-		if err != nil {
-			Error("accept failed:%s", err.Error())
-			if opErr, ok := err.(*net.OpError); ok {
-				if !opErr.Temporary() {
-					break
-				}
-			}
-			continue
-		}
-		daemon.wg.Add(1)
-		go handleClient(conn)
-	}
+	return tp.reset(config.Hosts)
 }
 
 const SIG_RELOAD = syscall.Signal(34)
 const SIG_STATUS = syscall.Signal(35)
 
 func reload() {
-	settings := readSettings(options.ConfigFile)
-	if settings == nil {
-		Log("reload failed")
+	err := glbLocalConnProvider.Reload()
+	if err != nil {
+		Log("reload failed: %s", err.Error())
 		return
 	}
-	daemon.settings = settings
 	Log("reload succeed")
 }
 
@@ -331,7 +147,7 @@ func status() {
 		"actives:%d",
 		runtime.GOMAXPROCS(0), runtime.NumCPU(),
 		runtime.NumGoroutine(),
-		daemon.status.actives)
+		glbScpServer.NumOfConnPairs())
 }
 
 func handleSignal() {
@@ -350,89 +166,60 @@ func handleSignal() {
 	}
 }
 
-func httpGetRemoteAddr(w http.ResponseWriter, req *http.Request) {
-	local_addr := ""
-	queryForm, err := url.ParseQuery(req.URL.RawQuery)
-	if err == nil && len(queryForm["addr"]) > 0 {
-		local_addr = queryForm["addr"][0]
-	}
+var glbScpServer *SCPServer
+var glbLocalConnProvider *LocalConnProvider
 
-	// 不能写remote_addr := daemon.addrs[local_addr]
-	// 直接取会导致多个线程对同一个map同时读写, 所以转用事件的方式
-	query := new(QueryRemoteAddr)
-	query.arg = local_addr
-	query.retCh = make(chan string, 1)
+var optUploadMinPacket, optUploadMaxDelay int
 
-	// Debug("get_remote_addr.0, local:%s", local_addr)
-	daemon.eventCh <- query
-	remote_addr := <-query.retCh
+var glbWrapperHooks []func(provider *LocalConnProvider)
 
-	Debug("get_remote_addr:%s is from:%s", local_addr, remote_addr)
-	fmt.Fprintf(w, remote_addr)
+func installWrapperHook(hook func(provider *LocalConnProvider)) {
+	glbWrapperHooks = append(glbWrapperHooks, hook)
 }
 
-func handleHttp(addr string) {
-	http.HandleFunc("/get_remote_addr", httpGetRemoteAddr)
-	Info("start http service<%s>", addr)
-	err := http.ListenAndServe(addr, nil)
-	if err != nil {
-		Error("start http service<%s> failed:%s", addr, err.Error())
-		os.Exit(1)
-		return
-	}
-}
-
-func argsCheck() {
-	flag.StringVar(&options.LocalAddr, "listen_addr", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
-	flag.StringVar(&options.HttpAddr, "http_addr", "127.0.0.1:1249", "http listen port(127.0.0.1:1249)")
-	flag.UintVar(&options.LogLevel, "log", 3, "larger value for detail log")
-	flag.UintVar(&options.Timeout, "timeout", 30, "reuse timeout")
-	flag.UintVar(&options.SendBuf, "sbuf", 16384, "send buffer")
-	flag.IntVar(&options.MaxProcs, "procs", 2, "max procs")
-	flag.Usage = usage
-	flag.Parse()
-
-	args := flag.Args()
-	if len(args) < 1 {
-		Error("config file is missing.")
-		os.Exit(1)
-	}
-
-	options.ConfigFile = args[0]
-	Info("config file is: %s", options.ConfigFile)
-
-	if options.MaxProcs > 0 {
-		Info("set max procs:%d -> %d", runtime.GOMAXPROCS(options.MaxProcs), options.MaxProcs)
+func wrapperHook(provider *LocalConnProvider) {
+	for _, hook := range glbWrapperHooks {
+		hook(provider)
 	}
 }
 
 func main() {
 	// deal with arguments
-	argsCheck()
+	var listen string
+	var reuseTimeout int
+	var sentCacheSize int
 
-	// init daemon
-	daemon.settings = readSettings(options.ConfigFile)
-	if daemon.settings == nil {
-		Error("parse config failed")
+	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
+	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
+	flag.IntVar(&reuseTimeout, "timeout", 30, "reuse timeout")
+	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
+	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
+	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
+	flag.Usage = usage
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 1 {
+		Error("on config file.")
 		os.Exit(1)
 	}
 
-	var sz uint32 = 32767
-	daemon.nextidCh = make(chan uint32, sz)
-	var i uint32
-	for i = 1; i <= sz; i++ {
-		daemon.nextidCh <- i
+	glbLocalConnProvider = new(LocalConnProvider)
+	glbLocalConnProvider.ConfigFile = args[0]
+	Info("config file: %s", glbLocalConnProvider.ConfigFile)
+
+	if err := glbLocalConnProvider.Reload(); err != nil {
+		Error("load target pool failed: %s", err.Error())
+		return
 	}
 
-	daemon.links = make(map[uint32]*StableLink)
-	daemon.addrs = make(map[string]string)
-	daemon.eventCh = make(chan interface{})
-	daemon.errCh = make(chan *ReuseError, 1024)
+	wrapperHook(glbLocalConnProvider)
 
-	// run
-	Info("goscon started")
+	if sentCacheSize > 0 {
+		scp.SentCacheSize = sentCacheSize
+	}
+
 	go handleSignal()
-	go handleHttp(options.HttpAddr)
-	start()
-	daemon.wg.Wait()
+	scpServer := NewSCPServer(listen, reuseTimeout)
+	Log("server: %v", scpServer.Start())
 }
