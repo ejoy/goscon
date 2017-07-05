@@ -7,6 +7,7 @@ client <--> goscon <---> server
 
 client和goscon之间使用断线重连协议，goscon把客户端的请求内容，转发到server。
 
+编译时开启`sproto`扩展，可以新建连接后自动给后端发送一条`sproto`消息，宣布客户端的IP地址信息。
 
 ## 协议
 
