@@ -283,24 +283,27 @@ func (c *Conn) clientHandshake() error {
 }
 
 func (c *Conn) serverReuseHandshake(rq *reuseConnReq) error {
-	code := SCPStatusOK
 	diff := 0
+	rp := &reuseConnResp{
+		received: 0,
+		code:     SCPStatusOK,
+	}
 
 OuterLoop:
 	for {
 		oldConn := c.scpServer.QueryByID(rq.id)
 		if oldConn == nil {
-			code = SCPStatusIDNotFound
+			rp.code = SCPStatusIDNotFound
 			break OuterLoop
 		}
 
 		if !rq.verifySum(oldConn.secret) {
-			code = SCPStatusUnauthorized
+			rp.code = SCPStatusUnauthorized
 			break OuterLoop
 		}
 
 		if oldConn.handshakes >= rq.handshakes {
-			code = SCPStatusExpired
+			rp.code = SCPStatusExpired
 			break OuterLoop
 		}
 
@@ -309,29 +312,25 @@ OuterLoop:
 
 		// double check
 		if oldConn == nil {
-			code = SCPStatusIDNotFound
+			rp.code = SCPStatusIDNotFound
 			break OuterLoop
 		}
 
 		diff = oldConn.out.GetBytesSent() - int(rq.received)
 		if diff < 0 || diff > oldConn.sentCache.Len() {
-			code = SCPStatusNotAcceptable
+			rp.code = SCPStatusNotAcceptable
 			break OuterLoop
 		}
 		c.initReuseConn(oldConn, rq.handshakes)
+		rp.received = uint32(c.in.GetBytesReceived())
 		break OuterLoop
-	}
-
-	rp := &reuseConnResp{
-		received: uint32(c.in.GetBytesReceived()),
-		code:     code,
 	}
 
 	if err := c.writeRecord(rp); err != nil {
 		return err
 	}
 
-	if err := newError(code); err != nil {
+	if err := newError(rp.code); err != nil {
 		return err
 	}
 
