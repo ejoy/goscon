@@ -21,31 +21,31 @@ type SCPConn struct {
 	connErr    error // error when operate on conn
 	connClosed bool  // conn closed
 
-	reuseTimeoutCh chan struct{}
-	reuseTimeout   time.Duration
+	reuseCh      chan struct{}
+	reuseTimeout time.Duration
 }
 
 func (s *SCPConn) setErrorWithLocked(err error) {
 	if err == nil {
 		if s.connErr != nil {
-			if s.reuseTimeoutCh != nil {
-				close(s.reuseTimeoutCh)
-				s.reuseTimeoutCh = nil
+			if s.reuseCh != nil {
+				close(s.reuseCh)
+				s.reuseCh = nil
 			}
 			s.connErr = nil
 		}
 	} else {
 		if s.connErr == nil {
-			if s.reuseTimeoutCh != nil {
-				panic(s.reuseTimeoutCh != nil)
+			if s.reuseCh != nil {
+				panic(s.reuseCh != nil)
 			}
 
-			s.reuseTimeoutCh = make(chan struct{})
+			s.reuseCh = make(chan struct{})
 			go func() {
 				select {
 				case <-time.Tick(s.reuseTimeout):
 					s.Close()
-				case <-s.reuseTimeoutCh:
+				case <-s.reuseCh:
 				}
 			}()
 			s.connErr = err

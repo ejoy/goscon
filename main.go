@@ -200,7 +200,7 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		Error("on config file.")
+		Error("no config file.")
 		os.Exit(1)
 	}
 
