@@ -122,8 +122,8 @@ func newCipherConnWriter(secret leu64) *cipherConnWriter {
 
 type Conn struct {
 	// constant
-	conn      net.Conn
-	scpServer SCPServer
+	conn   net.Conn
+	config *Config
 
 	handshakeMutex    sync.Mutex
 	handshakeErr      error
@@ -252,8 +252,9 @@ func (c *Conn) clientNewHandshake() error {
 	pubKey := dh64.PublicKey(priKey)
 
 	nq := &newConnReq{
-		id:  0,
-		key: toLeu64(pubKey),
+		id:           0,
+		key:          toLeu64(pubKey),
+		targetServer: c.config.TargetServer,
 	}
 
 	if err := c.writeRecord(nq); err != nil {
@@ -291,7 +292,7 @@ func (c *Conn) serverReuseHandshake(rq *reuseConnReq) error {
 
 OuterLoop:
 	for {
-		oldConn := c.scpServer.QueryByID(rq.id)
+		oldConn := c.config.ScpServer.QueryByID(rq.id)
 		if oldConn == nil {
 			rp.code = SCPStatusIDNotFound
 			break OuterLoop
@@ -308,7 +309,7 @@ OuterLoop:
 		}
 
 		// all check pass, close old
-		oldConn = c.scpServer.CloseByID(rq.id)
+		oldConn = c.config.ScpServer.CloseByID(rq.id)
 
 		// double check
 		if oldConn == nil {
@@ -351,19 +352,22 @@ func (c *Conn) serverNewHandshake(nq *newConnReq) error {
 	priKey := dh64.PrivateKey()
 	pubKey := dh64.PublicKey(priKey)
 
-	id := c.scpServer.AcquireID()
+	id := c.config.ScpServer.AcquireID()
 	np := &newConnResp{
 		id:  id,
 		key: toLeu64(pubKey),
 	}
 
 	if err := c.writeRecord(np); err != nil {
-		c.scpServer.ReleaseID(id)
+		c.config.ScpServer.ReleaseID(id)
 		return err
 	}
 
 	secret := dh64.Secret(priKey, nq.key.Uint64())
 	c.initNewConn(id, toLeu64(secret))
+
+	// set preferred target
+	c.config.TargetServer = nq.targetServer
 	return nil
 }
 
@@ -397,7 +401,7 @@ func (c *Conn) Handshake() error {
 		return nil
 	}
 
-	if c.scpServer == nil {
+	if c.config.ScpServer == nil {
 		c.handshakeErr = c.clientHandshake()
 	} else {
 		c.handshakeErr = c.serverHandshake()
@@ -477,4 +481,8 @@ func (c *Conn) ID() int {
 
 func (c *Conn) IsReused() bool {
 	return c.reused
+}
+
+func (c *Conn) TargetServer() string {
+	return c.config.TargetServer
 }

@@ -56,7 +56,7 @@ func (cc *ClientCase) testSCP(originConn *scp.Conn, conn net.Conn) (*scp.Conn, e
 	originConn.Close()
 	originConn.Write(wbuf[sz/2:])
 
-	scon := scp.Client(conn, originConn)
+	scon := scp.Client(conn, &scp.Config{ConnForReused: originConn})
 	if _, err := io.ReadFull(scon, rbuf); err != nil {
 		return nil, err
 	}

@@ -7,6 +7,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"math/rand"
@@ -20,6 +21,8 @@ import (
 	"github.com/ejoy/goscon/scp"
 )
 
+var errNoHost = errors.New("no host")
+
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: %s [config]\n", os.Args[0])
 	flag.PrintDefaults()
@@ -27,14 +30,15 @@ func usage() {
 }
 
 type Host struct {
-	Addr   string
-	Weight int
+	Addr   string `json:"addr"`
+	Weight int    `json:"weight"`
+	Name   string `json:"name"`
 
 	addr *net.TCPAddr
 }
 
 type Config struct {
-	Hosts []Host
+	Hosts []Host `json:"hosts"`
 }
 
 type LocalConnWrapper interface {
@@ -57,7 +61,8 @@ func (tp *LocalConnProvider) MustSetWrapper(wrapper LocalConnWrapper) {
 	}
 	tp.wrapper = wrapper
 }
-func (tp *LocalConnProvider) GetHost() *Host {
+
+func (tp *LocalConnProvider) GetHostByWeight() *Host {
 	v := rand.Intn(tp.weight)
 	for _, host := range tp.hosts {
 		if host.Weight >= v {
@@ -68,8 +73,30 @@ func (tp *LocalConnProvider) GetHost() *Host {
 	return nil
 }
 
-func (tp *LocalConnProvider) CreateLocalConn(remoteConn net.Conn) (*net.TCPConn, error) {
-	host := glbLocalConnProvider.GetHost()
+func (tp *LocalConnProvider) GetHostByName(name string) *Host {
+	for _, host := range tp.hosts {
+		if host.Name == name {
+			return &host
+		}
+	}
+	Log("GetHostByName failed: %s", name)
+	return nil
+}
+
+func (tp *LocalConnProvider) GetHost(preferred string) *Host {
+	if preferred == "" {
+		return tp.GetHostByWeight()
+	} else {
+		return tp.GetHostByName(preferred)
+	}
+}
+
+func (tp *LocalConnProvider) CreateLocalConn(remoteConn *scp.Conn) (*net.TCPConn, error) {
+	host := glbLocalConnProvider.GetHost(remoteConn.TargetServer())
+	if host == nil {
+		return nil, errNoHost
+	}
+
 	conn, err := net.DialTCP("tcp", nil, host.addr)
 	if err != nil {
 		return nil, err

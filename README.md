@@ -19,10 +19,13 @@ Client->Server: 传输一个 2 byte size(big-endian) + content 的包, size == l
 
 ```
 0\n
-base64(DHPublicKey)
+base64(DHPublicKey)\n
+targetServer
 ```
 
-DHPublicKey 是一个 8 bytes 值, 经过 DH 算法计算出来的 key
+DHPublicKey 是一个 8 bytes 值, 经过 DH 算法计算出来的 key。
+
+`targetServer`用于提示优先连接的后端服务器名字。`targetServer`应该仅包括[a-zA-Z_0-9]。
 
 ```
 DHPrivateKey = dh64.PrivateKey()
@@ -39,7 +42,6 @@ base64(DHPublicKey)
 这里, id 是一个 10 进制的非 0 数字串. 建议在 [1,2^32) 之间. 因为实现可能利用 uint32_t 保存这个 id .
 
 DHPublicKey 的算法同 client 的算法.
-
 
 握手完毕后, 双方获得一个公有的 64bit secret,  计算方法为:
 

@@ -221,7 +221,7 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 func (ss *SCPServer) handleClient(conn *net.TCPConn) {
 	defer Recover()
 
-	scon := scp.Server(conn, ss)
+	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 	if err := scon.Handshake(); err != nil {
 		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())
 		conn.Close()

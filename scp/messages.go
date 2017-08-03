@@ -34,12 +34,16 @@ type handshakeMessage interface {
 }
 
 type newConnReq struct {
-	id  int
-	key leu64
+	id           int
+	key          leu64
+	targetServer string
 }
 
 func (r *newConnReq) marshal() []byte {
 	s := fmt.Sprintf("%d\n%s", r.id, b64encodeLeu64(r.key))
+	if r.targetServer != "" {
+		s += fmt.Sprintf("\n%s", r.targetServer)
+	}
 	return []byte(s)
 }
 
@@ -56,6 +60,10 @@ func (r *newConnReq) unmarshal(s []byte) (err error) {
 
 	if r.key, err = b64decodeLeu64(lines[1]); err != nil {
 		return
+	}
+
+	if len(lines) >= 3 {
+		r.targetServer = lines[2]
 	}
 	return
 }

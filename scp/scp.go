@@ -19,25 +19,56 @@ type SCPServer interface {
 	CloseByID(id int) *Conn
 }
 
-func Server(conn net.Conn, ss SCPServer) *Conn {
+type Config struct {
+	// preferred target server
+	// for client
+	TargetServer string
+
+	// reused conn
+	// for client
+	ConnForReused *Conn
+
+	// SCPServer
+	// for server
+	ScpServer SCPServer
+}
+
+var defaultConfig = &Config{}
+
+func (config *Config) clone() *Config {
+	return &Config{
+		ScpServer: config.ScpServer,
+	}
+}
+
+func Server(conn net.Conn, config *Config) *Conn {
+	if config.ScpServer == nil {
+		panic("config.ScpServer == nil")
+	}
+
 	c := &Conn{
-		conn:      conn,
-		scpServer: ss,
+		conn:   conn,
+		config: config.clone(),
 	}
 
 	return c
 }
 
-func Client(conn net.Conn, oldConn *Conn) *Conn {
-	c := &Conn{
-		conn: conn,
+func Client(conn net.Conn, config *Config) *Conn {
+	if config == nil {
+		config = defaultConfig
 	}
 
-	if oldConn != nil {
-		if oldConn.id == 0 {
-			panic("oldConn.id == 0")
+	c := &Conn{
+		conn:   conn,
+		config: config,
+	}
+
+	if config.ConnForReused != nil {
+		if config.ConnForReused.id == 0 {
+			panic("config.ConnForReused.id == 0")
 		}
-		c.initReuseConn(oldConn, oldConn.handshakes+1)
+		c.initReuseConn(config.ConnForReused, config.ConnForReused.handshakes+1)
 	}
 	return c
 }
