@@ -220,6 +220,6 @@ func main() {
 	}
 
 	go handleSignal()
-	scpServer := NewSCPServer(listen, reuseTimeout)
-	Log("server: %v", scpServer.Start())
+	glbScpServer = NewSCPServer(listen, reuseTimeout)
+	Log("server: %v", glbScpServer.Start())
 }
