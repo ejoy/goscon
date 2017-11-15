@@ -1,6 +1,7 @@
 package scp
 
 import (
+	"bufio"
 	"crypto/rc4"
 	"encoding/binary"
 	"io"
@@ -173,15 +174,18 @@ func (c *Conn) initReuseConn(oldConn *Conn, handshakes int) {
 func (c *Conn) writeRecord(msg handshakeMessage) error {
 	data := msg.marshal()
 	sz := uint16(len(data))
-	err := binary.Write(c.conn, binary.BigEndian, sz)
+
+	w := bufio.NewWriter(c.conn)
+	err := binary.Write(w, binary.BigEndian, sz)
 	if err != nil {
 		return err
 	}
 
-	if _, err := c.conn.Write(data); err != nil {
+	if _, err := w.Write(data); err != nil {
 		return err
 	}
-	return nil
+
+	return w.Flush()
 }
 
 func (c *Conn) readRecord(msg handshakeMessage) error {
