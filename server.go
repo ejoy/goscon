@@ -252,20 +252,30 @@ func (ss *SCPServer) Start() error {
 
 	Info("scpServer listen: %s", tcpAddr.String())
 
+	var tempDelay time.Duration // how long to sleep on accept failure
+
 	for {
 		conn, err := ln.AcceptTCP()
 		if err != nil {
-			Error("accept failed:%s", err.Error())
-			if opErr, ok := err.(*net.OpError); ok {
-				if !opErr.Temporary() {
-					break
+			if opErr, ok := err.(*net.OpError); ok && opErr.Temporary() {
+				if tempDelay == 0 {
+					tempDelay = 5 * time.Millisecond
+				} else {
+					tempDelay *= 2
 				}
+				if max := 1 * time.Second; tempDelay > max {
+					tempDelay = max
+				}
+				Error("accept error: %v; retrying in %v", err, tempDelay)
+				time.Sleep(tempDelay)
+				continue
 			}
-			continue
+			Error("accept failed:%s", err.Error())
+			return err
 		}
+		tempDelay = 0
 		go ss.handleClient(conn)
 	}
-	return nil
 }
 
 func NewSCPServer(laddr string, reuseTimeout int) *SCPServer {
