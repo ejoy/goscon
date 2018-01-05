@@ -36,12 +36,20 @@ Server->Client: 回应给 Client 一个握手信息:
 
 ```
 id\n
-base64(DHPublicKey)
+base64(DHPublicKey)\n
+base64(DSA_CODE_R):base64(DSA_CODE_S)\n
 ```
 
 这里, id 是一个 10 进制的非 0 数字串. 建议在 [1,2^32) 之间. 因为实现可能利用 uint32_t 保存这个 id .
 
 DHPublicKey 的算法同 client 的算法.
+
+如果提供了DSA私钥，则把上面两行放在一起(保留 \n)得到content，使用私钥签名得到DSA_CODE_R, DSA_CODE_S:
+```
+DSA_CODE_R, DSA_CODE_S = dsa.Sign(rand.Reader, privateKey, md5(content))
+```
+
+客户端收到服务器响应后，应该校验DSA签名的有效性。
 
 握手完毕后, 双方获得一个公有的 64bit secret,  计算方法为:
 
@@ -76,7 +84,8 @@ Server->Client: 回应握手消息:
 
 ```
 recvnumber\n
-CODE msg
+CODE\n
+base64(HMAC_CODE)
 ```
 
 这里, recvnumber 是一个 10 进制数字, 表示 (曾经在这个会话上, 服务器收到过客户端发出的多少字节 mod 2^32).
@@ -87,6 +96,8 @@ CODE 是一个10进制三位数, 表示连接是否恢复:
 * 403 Index Expired : 表示 Index 已经使用过
 * 404 User Not Found : 表示连接 id 已经无效
 * 406 Not Acceptable : 表示 cache 的数据流不够
+
+HMAC_CODE的计算方式同上。
 
 当连接恢复后, 服务器应当根据之前记录的发送出去的字节数（不计算每次握手包的字节）, 减去客户端通知它收到的字节数, 开始补发未收到的字节。
 客户端也做相同的事情。

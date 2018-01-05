@@ -218,7 +218,7 @@ func (c *Conn) clientReuseHandshake() error {
 	}
 
 	// fill checksum
-	rq.setSum(c.secret)
+	rq.fillSum(c.secret)
 	if err := c.writeRecord(rq); err != nil {
 		return err
 	}
@@ -226,6 +226,10 @@ func (c *Conn) clientReuseHandshake() error {
 	var rp reuseConnResp
 	if err := c.readRecord(&rp); err != nil {
 		return err
+	}
+
+	if !rp.verifySum(c.secret) {
+		return ErrChecksumNotMatch
 	}
 
 	if err := newError(rp.code); err != nil {
@@ -237,6 +241,7 @@ func (c *Conn) clientReuseHandshake() error {
 		return ErrNotAcceptable
 	}
 
+	// resend missing data to server
 	if diff > 0 {
 		lastBytes, err := c.sentCache.ReadLastBytes(diff)
 		if err != nil {
@@ -328,6 +333,7 @@ OuterLoop:
 		}
 		c.initReuseConn(oldConn, rq.handshakes)
 		rp.received = uint32(c.in.GetBytesReceived())
+		rp.fillSum(c.secret)
 		break OuterLoop
 	}
 
@@ -335,10 +341,12 @@ OuterLoop:
 		return err
 	}
 
+	// reuse failed
 	if err := newError(rp.code); err != nil {
 		return err
 	}
 
+	// resend missing data to client
 	if diff > 0 {
 		lastBytes, err := c.sentCache.ReadLastBytes(int(diff))
 		if err != nil {

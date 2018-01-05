@@ -102,14 +102,18 @@ type reuseConnReq struct {
 	sum        leu64 // checksum
 }
 
-func (r *reuseConnReq) verifySum(secret leu64) bool {
+func (r *reuseConnReq) calcSum(secret leu64) leu64 {
 	s := fmt.Sprintf("%d\n%d\n%d\n", r.id, r.handshakes, r.received)
-	sum := hmac(hash([]byte(s)), secret)
+	return hmac(hash([]byte(s)), secret)
+}
+
+func (r *reuseConnReq) verifySum(secret leu64) bool {
+	sum := r.calcSum(secret)
 	return bytes.Equal(r.sum[:], sum[:])
 }
-func (r *reuseConnReq) setSum(secret leu64) {
-	s := fmt.Sprintf("%d\n%d\n%d\n", r.id, r.handshakes, r.received)
-	r.sum = hmac(hash([]byte(s)), secret)
+
+func (r *reuseConnReq) fillSum(secret leu64) {
+	r.sum = r.calcSum(secret)
 }
 
 func (r *reuseConnReq) marshal() []byte {
@@ -148,16 +152,31 @@ func (r *reuseConnReq) unmarshal(s []byte) (err error) {
 type reuseConnResp struct {
 	received uint32
 	code     int
+	sum      leu64 // checksum
+}
+
+func (r *reuseConnResp) calcSum(secret leu64) leu64 {
+	s := fmt.Sprintf("%d\n%d\n", r.received, r.code)
+	return hmac(hash([]byte(s)), secret)
+}
+
+func (r *reuseConnResp) verifySum(secret leu64) bool {
+	sum := r.calcSum(secret)
+	return bytes.Equal(r.sum[:], sum[:])
+}
+
+func (r *reuseConnResp) fillSum(secret leu64) {
+	r.sum = r.calcSum(secret)
 }
 
 func (r *reuseConnResp) marshal() []byte {
-	s := fmt.Sprintf("%d\n%d", r.received, r.code)
+	s := fmt.Sprintf("%d\n%d\n%s", r.received, r.code, b64encodeLeu64(r.sum))
 	return []byte(s)
 }
 
 func (r *reuseConnResp) unmarshal(s []byte) (err error) {
 	lines := strings.Split(string(s), "\n")
-	if len(lines) < 2 {
+	if len(lines) < 3 {
 		err = ErrIllegalMsg
 		return
 	}
@@ -169,6 +188,10 @@ func (r *reuseConnResp) unmarshal(s []byte) (err error) {
 	r.received = uint32(received)
 
 	if r.code, err = strconv.Atoi(lines[1]); err != nil {
+		return
+	}
+
+	if r.sum, err = b64decodeLeu64(lines[2]); err != nil {
 		return
 	}
 	return nil

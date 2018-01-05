@@ -1,6 +1,7 @@
 package scp
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -16,11 +17,13 @@ const (
 	SCPStatusServerInternal = 501
 )
 
-var ErrIllegalMsg = fmt.Errorf("Illegal Message")
-var ErrUnauthorized = fmt.Errorf("401 Unauthorized")
-var ErrIndexExpired = fmt.Errorf("403 Index Expired")
-var ErrIDNotFound = fmt.Errorf("404 ID Not Found")
-var ErrNotAcceptable = fmt.Errorf("406 Not Acceptable")
+var ErrIllegalMsg = errors.New("Illegal Message")
+var ErrChecksumNotMatch = errors.New("Checksum Not Match")
+var ErrSignatureNotMatch = errors.New("Signature Not Match")
+var ErrUnauthorized = errors.New("401 Unauthorized")
+var ErrIndexExpired = errors.New("403 Index Expired")
+var ErrIDNotFound = errors.New("404 ID Not Found")
+var ErrNotAcceptable = errors.New("406 Not Acceptable")
 
 func newError(code int) error {
 	switch code {
