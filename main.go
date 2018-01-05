@@ -18,6 +18,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/ejoy/goscon/dsa"
 	"github.com/ejoy/goscon/scp"
 )
 
@@ -213,10 +214,12 @@ func wrapperHook(provider *LocalConnProvider) {
 func main() {
 	// deal with arguments
 	var listen string
+	var keyFile string
 	var reuseTimeout int
 	var sentCacheSize int
 
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
+	flag.StringVar(&keyFile, "key", "", "private key file")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
 	flag.IntVar(&reuseTimeout, "timeout", 30, "reuse timeout")
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
@@ -246,7 +249,17 @@ func main() {
 		scp.SentCacheSize = sentCacheSize
 	}
 
+	if keyFile != "" {
+		priv, err := dsa.ParseDSAPrivateKeyFromFile(keyFile)
+		if err != nil {
+			Error("parse dsa private key failed: %s", err.Error())
+			return
+		}
+		glbScpServer = NewSCPServer(listen, reuseTimeout, priv)
+	} else {
+		glbScpServer = NewSCPServer(listen, reuseTimeout, nil)
+	}
+
 	go handleSignal()
-	glbScpServer = NewSCPServer(listen, reuseTimeout)
 	Log("server: %v", glbScpServer.Start())
 }

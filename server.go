@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/dsa"
 	"net"
 	"sync"
 	"time"
@@ -127,6 +128,7 @@ func (p *ConnPair) Pump() {
 type SCPServer struct {
 	laddr        string
 	reuseTimeout time.Duration
+	privateKey   *dsa.PrivateKey
 	idAllocator  *scp.IDAllocator
 
 	connPairMutex sync.Mutex
@@ -221,7 +223,7 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 func (ss *SCPServer) handleClient(conn *net.TCPConn) {
 	defer Recover()
 
-	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
+	scon := scp.Server(conn, &scp.Config{ScpServer: ss, PrivateKey: ss.privateKey})
 	if err := scon.Handshake(); err != nil {
 		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())
 		conn.Close()
@@ -278,10 +280,11 @@ func (ss *SCPServer) Start() error {
 	}
 }
 
-func NewSCPServer(laddr string, reuseTimeout int) *SCPServer {
+func NewSCPServer(laddr string, reuseTimeout int, priv *dsa.PrivateKey) *SCPServer {
 	return &SCPServer{
 		laddr:        laddr,
 		reuseTimeout: time.Duration(reuseTimeout) * time.Second,
+		privateKey:   priv,
 		idAllocator:  scp.NewIDAllocator(1),
 		connPairs:    make(map[int]*ConnPair),
 	}

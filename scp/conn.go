@@ -279,6 +279,10 @@ func (c *Conn) clientNewHandshake() error {
 		panic("np.id == 0")
 	}
 
+	if !np.verifySignature(c.config.PublicKey) {
+		return ErrSignatureNotMatch
+	}
+
 	secret := dh64.Secret(priKey, np.key.Uint64())
 	c.initNewConn(np.id, toLeu64(secret))
 	return nil
@@ -369,6 +373,9 @@ func (c *Conn) serverNewHandshake(nq *newConnReq) error {
 		id:  id,
 		key: toLeu64(pubKey),
 	}
+
+	// sign
+	np.fillSignature(c.config.PrivateKey)
 
 	if err := c.writeRecord(np); err != nil {
 		c.config.ScpServer.ReleaseID(id)

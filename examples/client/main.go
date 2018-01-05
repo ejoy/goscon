@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/dsa"
 	crand "crypto/rand"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"os"
 
+	mydsa "github.com/ejoy/goscon/dsa"
 	"github.com/ejoy/goscon/scp"
 )
 
@@ -91,7 +93,7 @@ func (cc *ClientCase) Start() error {
 	defer old.Close()
 
 	n := optPackets / 2
-	originConn := scp.Client(old, nil)
+	originConn := scp.Client(old, &scp.Config{PublicKey: publicKey})
 	if err = cc.testN(originConn, n); err != nil {
 		return err
 	}
@@ -160,10 +162,12 @@ func testN(addr string) {
 
 var optConcurrent, optPackets, optMinPacket, optMaxPacket int
 var optVerbose bool
+var publicKey *dsa.PublicKey
 
 func main() {
 	var echoServer string
 	var sconServer string
+	var keyFile string
 
 	flag.IntVar(&optConcurrent, "concurrent", 1, "concurrent connections")
 	flag.IntVar(&optPackets, "packets", 100, "packets per connection")
@@ -171,8 +175,15 @@ func main() {
 	flag.IntVar(&optMaxPacket, "max", 100, "max packet size")
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
 	flag.StringVar(&sconServer, "sconServer", "127.0.0.1:1248", "connect to scon server")
+	flag.StringVar(&keyFile, "key", "", "public key")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
 	flag.Parse()
+
+	var err error
+	if publicKey, err = mydsa.ParseDSAPublicKeyFromFile(keyFile); err != nil {
+		fmt.Fprintf(os.Stdout, "ParseDSAPublicKeyFromFile: %s", err)
+		return
+	}
 
 	if echoServer != "" {
 		ln, err := startEchoServer(echoServer)

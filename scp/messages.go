@@ -2,10 +2,14 @@ package scp
 
 import (
 	"bytes"
+	"crypto/dsa"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
+
+	mydsa "github.com/ejoy/goscon/dsa"
 )
 
 func b64decodeLeu64(src string) (v leu64, err error) {
@@ -26,6 +30,19 @@ func b64decodeLeu64(src string) (v leu64, err error) {
 
 func b64encodeLeu64(v leu64) string {
 	return base64.StdEncoding.EncodeToString(v[:])
+}
+
+func b64decode(b []byte) []byte {
+	dst := make([]byte, base64.StdEncoding.DecodedLen(len(b)))
+	n, err := base64.StdEncoding.Decode(dst, b)
+	if err != nil {
+		return nil
+	}
+	return dst[:n]
+}
+
+func b64encode(b []byte) string {
+	return base64.StdEncoding.EncodeToString(b)
 }
 
 type handshakeMessage interface {
@@ -71,10 +88,44 @@ func (r *newConnReq) unmarshal(s []byte) (err error) {
 type newConnResp struct {
 	id  int
 	key leu64
+	r   *big.Int
+	s   *big.Int
+}
+
+func (np *newConnResp) verifySignature(pub *dsa.PublicKey) bool {
+	if pub == nil {
+		return true
+	}
+
+	if np.r == nil || np.s == nil {
+		return false
+	}
+
+	content := fmt.Sprintf("%d\n%s\n", np.id, b64encodeLeu64(np.key))
+	return mydsa.Verify(pub, []byte(content), np.r, np.s)
+}
+
+func (np *newConnResp) fillSignature(priv *dsa.PrivateKey) {
+	if priv == nil {
+		return
+	}
+
+	content := fmt.Sprintf("%d\n%s\n", np.id, b64encodeLeu64(np.key))
+	r, s, err := mydsa.Sign(priv, []byte(content))
+	if err != nil {
+		panic(err)
+	}
+	np.r, np.s = r, s
 }
 
 func (r *newConnResp) marshal() []byte {
-	s := fmt.Sprintf("%d\n%s", r.id, b64encodeLeu64(r.key))
+	var s string
+	if r.r == nil {
+		s = fmt.Sprintf("%d\n%s", r.id, b64encodeLeu64(r.key))
+	} else {
+		s = fmt.Sprintf("%d\n%s\n%s:%s", r.id, b64encodeLeu64(r.key), b64encode(r.r.Bytes()), b64encode(r.s.Bytes()))
+	}
+
 	return []byte(s)
 }
 
@@ -91,6 +142,24 @@ func (r *newConnResp) unmarshal(s []byte) (err error) {
 
 	if r.key, err = b64decodeLeu64(lines[1]); err != nil {
 		return
+	}
+
+	// parse signature
+	if len(lines) > 2 {
+		values := strings.Split(lines[2], ":")
+		if len(values) != 2 {
+			err = ErrIllegalMsg
+			return
+		}
+
+		rv := b64decode([]byte(values[0]))
+		sv := b64decode([]byte(values[1]))
+		if rv == nil || sv == nil {
+			err = ErrIllegalMsg
+			return
+		}
+		r.r = big.NewInt(0).SetBytes(rv)
+		r.s = big.NewInt(0).SetBytes(sv)
 	}
 	return
 }

@@ -2,6 +2,7 @@
 package scp
 
 import (
+	"crypto/dsa"
 	"net"
 )
 
@@ -28,6 +29,14 @@ type Config struct {
 	// for client
 	ConnForReused *Conn
 
+	// DSA public key
+	// for client
+	PublicKey *dsa.PublicKey
+
+	// DSA private key
+	// for server
+	PrivateKey *dsa.PrivateKey
+
 	// SCPServer
 	// for server
 	ScpServer SCPServer
@@ -37,7 +46,8 @@ var defaultConfig = &Config{}
 
 func (config *Config) clone() *Config {
 	return &Config{
-		ScpServer: config.ScpServer,
+		ScpServer:  config.ScpServer,
+		PrivateKey: config.PrivateKey,
 	}
 }
 

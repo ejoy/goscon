@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/dsa"
 	"flag"
 	"io"
 	"log"
@@ -8,10 +9,11 @@ import (
 	"os"
 	//"fmt"
 
+	mydsa "github.com/ejoy/goscon/dsa"
 	"github.com/ejoy/goscon/scp"
 )
 
-func getOldScon(sent string, connect string, targetServer string) (*scp.Conn, error) {
+func getOldScon(sent string, connect string, targetServer string, pub *dsa.PublicKey) (*scp.Conn, error) {
 	if sent == "" {
 		return nil, nil
 	}
@@ -22,7 +24,7 @@ func getOldScon(sent string, connect string, targetServer string) (*scp.Conn, er
 	}
 	defer conn.Close()
 
-	scon := scp.Client(conn, &scp.Config{TargetServer: targetServer})
+	scon := scp.Client(conn, &scp.Config{TargetServer: targetServer, PublicKey: pub})
 	if _, err = scon.Write([]byte(sent)); err != nil {
 		return nil, err
 	}
@@ -39,15 +41,21 @@ func (sf *stdoutFormater) Write(data []byte) (int, error) {
 }
 
 func main() {
-	var sent, connect, targetServer string
+	var sent, connect, targetServer, keyFile string
 	flag.StringVar(&connect, "connect", "127.0.0.1:1248", "connect to")
 	flag.StringVar(&sent, "sent", "hello, world!\n", "sent")
 	flag.StringVar(&targetServer, "targetServer", "", "target server")
+	flag.StringVar(&keyFile, "key", "", "public key")
 	flag.Parse()
 
-	oldScon, err := getOldScon(sent, connect, targetServer)
+	pub, err := mydsa.ParseDSAPublicKeyFromFile(keyFile)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("ParseDSAPublicKeyFromFile:", err)
+	}
+
+	oldScon, err := getOldScon(sent, connect, targetServer, pub)
+	if err != nil {
+		log.Fatal("getOldScon:", err)
 	}
 
 	conn, err := net.Dial("tcp", connect)
