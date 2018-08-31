@@ -12,9 +12,9 @@ import (
 )
 
 type sprotoPackage struct {
-	Type    int32 `sproto:"integer,0,name=type"`
-	Session int32 `sproto:"integer,1,name=session"`
-	Ud      int32 `sproto:"integer,2,name=ud"`
+	Type    int32  `sproto:"integer,0,name=type"`
+	Session *int32 `sproto:"integer,1,name=session"`
+	Ud      int32  `sproto:"integer,2,name=ud"`
 }
 
 type sprotoAnnounceAddr struct {
