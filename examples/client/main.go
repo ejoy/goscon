@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/ejoy/goscon/scp"
+	"github.com/xtaci/kcp-go"
 )
 
 type ClientCase struct {
@@ -83,8 +84,16 @@ func (cc *ClientCase) testN(conn *scp.Conn, packets int) error {
 	return nil
 }
 
+func (cc *ClientCase) Dial() (net.Conn, error) {
+	if network == "tcp" {
+		return net.Dial("tcp", cc.connect)
+	} else {
+		return kcp.DialWithOptions(cc.connect, nil, 1, 0)
+	}
+}
+
 func (cc *ClientCase) Start() error {
-	old, err := net.Dial("tcp", cc.connect)
+	old, err := cc.Dial()
 	if err != nil {
 		return err
 	}
@@ -96,7 +105,7 @@ func (cc *ClientCase) Start() error {
 		return err
 	}
 
-	new, err := net.Dial("tcp", cc.connect)
+	new, err := cc.Dial()
 	if err != nil {
 		return err
 	}
@@ -160,6 +169,7 @@ func testN(addr string) {
 
 var optConcurrent, optPackets, optMinPacket, optMaxPacket int
 var optVerbose bool
+var network string
 
 func main() {
 	var echoServer string
@@ -172,6 +182,8 @@ func main() {
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
 	flag.StringVar(&sconServer, "sconServer", "127.0.0.1:1248", "connect to scon server")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
+
+	flag.StringVar(&network, "network", "tcp", "tcp or kcp")
 	flag.Parse()
 
 	if echoServer != "" {

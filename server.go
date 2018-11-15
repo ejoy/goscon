@@ -5,8 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ejoy/goscon/scp"
 	"io"
+
+	"github.com/ejoy/goscon/scp"
+	"github.com/xtaci/kcp-go"
 )
 
 var ReuseTimeout = 300 * time.Second
@@ -125,6 +127,7 @@ func (p *ConnPair) Pump() {
 }
 
 type SCPServer struct {
+	network      string
 	laddr        string
 	reuseTimeout time.Duration
 	idAllocator  *scp.IDAllocator
@@ -218,9 +221,84 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	connPair.Pump()
 }
 
-func (ss *SCPServer) handleClient(conn *net.TCPConn) {
-	defer Recover()
+type (
+	// ILisner 监听器
+	ILisner interface {
+		Accept() (IConn, error)
+	}
 
+	// IConn 封装kcp和tcp的接口
+	IConn interface {
+		SetOptions()
+		GetConn() net.Conn
+	}
+
+	tcpListen struct {
+		ln *net.TCPListener
+	}
+
+	kcpListen struct {
+		ln *kcp.Listener
+	}
+
+	tcpConn struct {
+		conn *net.TCPConn
+	}
+	kcpConn struct {
+		conn *kcp.UDPSession
+	}
+)
+
+func newLisner(network, laddr string) (ILisner, error) {
+	if network == "tcp" {
+		tcpAddr, err := net.ResolveTCPAddr("tcp", laddr)
+		if err != nil {
+			return nil, err
+		}
+
+		ln, err := net.ListenTCP("tcp", tcpAddr)
+		if err != nil {
+			return nil, err
+		}
+		return tcpListen{ln: ln}, nil
+	}
+
+	// kcp
+	ln, err := kcp.ListenWithOptions(laddr, nil, 1, 0)
+	return kcpListen{ln: ln}, err
+}
+
+func (t tcpListen) Accept() (IConn, error) {
+	conn, err := t.ln.AcceptTCP()
+	return tcpConn{conn: conn}, err
+}
+
+func (k kcpListen) Accept() (IConn, error) {
+	conn, err := k.ln.AcceptKCP()
+	return kcpConn{conn: conn}, err
+}
+
+func (t tcpConn) SetOptions() {
+	t.conn.SetKeepAlive(true)
+	t.conn.SetKeepAlivePeriod(time.Second * 60)
+	t.conn.SetLinger(0)
+}
+
+func (t tcpConn) GetConn() net.Conn {
+	return t.conn
+}
+
+func (k kcpConn) SetOptions() {
+
+}
+
+func (k kcpConn) GetConn() net.Conn {
+	return k.conn
+}
+
+func (ss *SCPServer) handleClient(iconn IConn) {
+	defer Recover()
+	conn := iconn.GetConn()
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 	if err := scon.Handshake(); err != nil {
 		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())
@@ -228,9 +306,7 @@ func (ss *SCPServer) handleClient(conn *net.TCPConn) {
 		return
 	}
 
-	conn.SetKeepAlive(true)
-	conn.SetKeepAlivePeriod(time.Second * 60)
-	conn.SetLinger(0)
+	iconn.SetOptions()
 
 	if scon.IsReused() {
 		ss.onReusedConn(scon)
@@ -239,23 +315,19 @@ func (ss *SCPServer) handleClient(conn *net.TCPConn) {
 	}
 }
 
+// Start process connections
 func (ss *SCPServer) Start() error {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", ss.laddr)
+	ln, err := newLisner(ss.network, ss.laddr)
 	if err != nil {
 		return err
 	}
 
-	ln, err := net.ListenTCP("tcp", tcpAddr)
-	if err != nil {
-		return err
-	}
-
-	Info("scpServer listen: %s", tcpAddr.String())
+	Info("scpServer listen: %s", ss.laddr)
 
 	var tempDelay time.Duration // how long to sleep on accept failure
 
 	for {
-		conn, err := ln.AcceptTCP()
+		conn, err := ln.Accept()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Temporary() {
 				if tempDelay == 0 {
@@ -278,8 +350,9 @@ func (ss *SCPServer) Start() error {
 	}
 }
 
-func NewSCPServer(laddr string, reuseTimeout int) *SCPServer {
+func NewSCPServer(network, laddr string, reuseTimeout int) *SCPServer {
 	return &SCPServer{
+		network:      network,
 		laddr:        laddr,
 		reuseTimeout: time.Duration(reuseTimeout) * time.Second,
 		idAllocator:  scp.NewIDAllocator(1),
