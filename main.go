@@ -218,8 +218,8 @@ func main() {
 	var sentCacheSize int
 
 	// kcp argments
-	// var fecData int
-	// var fecParity int
+	var fecData int
+	var fecParity int
 
 	flag.StringVar(&network, "network", "tcp", "tcp or kcp")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
@@ -229,8 +229,11 @@ func main() {
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
 	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
 
-	// flag.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
-	// flag.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
+	tcp := flag.NewFlagSet("tcp", flag.ExitOnError)
+
+	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
+	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
+	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 
 	flag.Usage = usage
 	flag.Parse()
@@ -257,6 +260,26 @@ func main() {
 	}
 
 	go handleSignal()
-	glbScpServer = NewSCPServer(network, listen, reuseTimeout)
-	Log("server: %v", glbScpServer.Start())
+
+	options := &Options{
+		timeout: reuseTimeout,
+		laddr:   listen,
+	}
+
+	if args[1] == "tcp" {
+		tcp.Parse(args[2:])
+		options.network = "tcp"
+	} else if args[1] == "kcp" {
+		kcp.Parse(args[2:])
+		options.network = "kcp"
+		options.fecData = fecData
+		options.fecParity = fecParity
+	} else {
+		Error("parameter error")
+		os.Exit(1)
+	}
+	glbScpServer = NewSCPServer(options)
+
+	Log("options: %v", options)
+	glbScpServer.Start()
 }
