@@ -222,8 +222,8 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 }
 
 type (
-	// ILisner 监听器
-	ILisner interface {
+	// Lisner 监听器
+	Lisner interface {
 		Accept() (IConn, error)
 	}
 
@@ -249,7 +249,7 @@ type (
 	}
 )
 
-func newLisner(network, laddr string) (ILisner, error) {
+func newLisner(network, laddr string) (Lisner, error) {
 	if network == "tcp" {
 		tcpAddr, err := net.ResolveTCPAddr("tcp", laddr)
 		if err != nil {
