@@ -212,7 +212,7 @@ func wrapperHook(provider *LocalConnProvider) {
 
 func main() {
 	// deal with arguments
-	var network string
+	var config string
 	var listen string
 	var reuseTimeout int
 	var sentCacheSize int
@@ -221,7 +221,7 @@ func main() {
 	var fecData int
 	var fecParity int
 
-	flag.StringVar(&network, "network", "tcp", "tcp or kcp")
+	flag.StringVar(&config, "config", "./settings.conf", "backend servers config file")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
 	flag.IntVar(&reuseTimeout, "timeout", 30, "reuse timeout")
@@ -229,7 +229,7 @@ func main() {
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
 	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
 
-	tcp := flag.NewFlagSet("tcp", flag.ExitOnError)
+	// tcp := flag.NewFlagSet("tcp", flag.ExitOnError)
 
 	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
 	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
@@ -240,12 +240,12 @@ func main() {
 
 	args := flag.Args()
 	if len(args) < 1 {
-		Error("no config file.")
+		Error("invalid network argument")
 		os.Exit(1)
 	}
 
 	glbLocalConnProvider = new(LocalConnProvider)
-	glbLocalConnProvider.ConfigFile = args[0]
+	glbLocalConnProvider.ConfigFile = config
 	Info("config file: %s", glbLocalConnProvider.ConfigFile)
 
 	if err := glbLocalConnProvider.Reload(); err != nil {
@@ -261,21 +261,21 @@ func main() {
 
 	go handleSignal()
 
+	network := args[0]
 	options := &Options{
 		timeout: reuseTimeout,
 		laddr:   listen,
+		network: network,
 	}
 
-	if args[1] == "tcp" {
-		tcp.Parse(args[2:])
-		options.network = "tcp"
-	} else if args[1] == "kcp" {
-		kcp.Parse(args[2:])
-		options.network = "kcp"
+	if network == "tcp" {
+		// tcp.Parse(args[1:])
+	} else if network == "kcp" {
+		kcp.Parse(args[1:])
 		options.fecData = fecData
 		options.fecParity = fecParity
 	} else {
-		Error("parameter error")
+		Error("invalid network type.")
 		os.Exit(1)
 	}
 	glbScpServer = NewSCPServer(options)
