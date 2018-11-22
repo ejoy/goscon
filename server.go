@@ -8,7 +8,6 @@ import (
 	"io"
 
 	"github.com/ejoy/goscon/scp"
-	"github.com/xtaci/kcp-go"
 )
 
 var ReuseTimeout = 300 * time.Second
@@ -220,89 +219,6 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	connPair.Pump()
 }
 
-type (
-	// Lisner 监听器
-	Lisner interface {
-		Accept() (Conn, error)
-	}
-
-	// Conn 封装kcp和tcp的接口
-	Conn interface {
-		SetOptions(*Options)
-		GetConn() net.Conn
-	}
-
-	Options struct {
-		network   string
-		laddr     string
-		timeout   int
-		fecData   int
-		fecParity int
-	}
-
-	tcpListen struct {
-		ln *net.TCPListener
-	}
-
-	kcpListen struct {
-		ln *kcp.Listener
-	}
-
-	tcpConn struct {
-		conn *net.TCPConn
-	}
-	kcpConn struct {
-		conn *kcp.UDPSession
-	}
-)
-
-func newLisner(options *Options) (Lisner, error) {
-	if options.network == "tcp" {
-		tcpAddr, err := net.ResolveTCPAddr("tcp", options.laddr)
-		if err != nil {
-			return nil, err
-		}
-
-		ln, err := net.ListenTCP("tcp", tcpAddr)
-		if err != nil {
-			return nil, err
-		}
-		return tcpListen{ln: ln}, nil
-	}
-
-	// kcp
-	ln, err := kcp.ListenWithOptions(options.laddr, nil, options.fecData, options.fecParity)
-	return kcpListen{ln: ln}, err
-}
-
-func (t tcpListen) Accept() (Conn, error) {
-	conn, err := t.ln.AcceptTCP()
-	return tcpConn{conn: conn}, err
-}
-
-func (k kcpListen) Accept() (Conn, error) {
-	conn, err := k.ln.AcceptKCP()
-	return kcpConn{conn: conn}, err
-}
-
-func (t tcpConn) SetOptions(options *Options) {
-	t.conn.SetKeepAlive(true)
-	t.conn.SetKeepAlivePeriod(time.Second * 60)
-	t.conn.SetLinger(0)
-}
-
-func (t tcpConn) GetConn() net.Conn {
-	return t.conn
-}
-
-func (k kcpConn) SetOptions(options *Options) {
-
-}
-
-func (k kcpConn) GetConn() net.Conn {
-	return k.conn
-}
-
 func (ss *SCPServer) handleClient(c Conn) {
 	defer Recover()
 	conn := c.GetConn()
@@ -323,13 +239,13 @@ func (ss *SCPServer) handleClient(c Conn) {
 }
 
 // Start process connections
-func (ss *SCPServer) Start() error {
-	ln, err := newLisner(ss.options)
+func (ss *SCPServer) Start(network, laddr string) error {
+	ln, err := ListenWithOptions(network, laddr, ss.options)
 	if err != nil {
 		return err
 	}
 
-	Info("scpServer listen: %s", ss.options.laddr)
+	Info("scpServer listen: %s: %s", network, laddr)
 
 	var tempDelay time.Duration // how long to sleep on accept failure
 

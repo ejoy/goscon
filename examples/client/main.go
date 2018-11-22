@@ -84,16 +84,16 @@ func (cc *ClientCase) testN(conn *scp.Conn, packets int) error {
 	return nil
 }
 
-func (cc *ClientCase) Dial() (net.Conn, error) {
+func Dial(network, connect string) (net.Conn, error) {
 	if network == "tcp" {
-		return net.Dial("tcp", cc.connect)
+		return net.Dial(network, connect)
 	} else {
-		return kcp.DialWithOptions(cc.connect, nil, 1, 0)
+		return kcp.DialWithOptions(connect, nil, fecData, fecParity)
 	}
 }
 
 func (cc *ClientCase) Start() error {
-	old, err := cc.Dial()
+	old, err := Dial(network, cc.connect)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (cc *ClientCase) Start() error {
 		return err
 	}
 
-	new, err := cc.Dial()
+	new, err := Dial(network, cc.connect)
 	if err != nil {
 		return err
 	}
@@ -170,6 +170,7 @@ func testN(addr string) {
 var optConcurrent, optPackets, optMinPacket, optMaxPacket int
 var optVerbose bool
 var network string
+var fecData, fecParity int
 
 func main() {
 	var echoServer string
@@ -182,9 +183,19 @@ func main() {
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
 	flag.StringVar(&sconServer, "sconServer", "127.0.0.1:1248", "connect to scon server")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
-
-	flag.StringVar(&network, "network", "tcp", "tcp or kcp")
+	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
+	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
+	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 	flag.Parse()
+
+	args := flag.Args()
+
+	if len(args) > 0 && args[0] == "kcp" {
+		kcp.Parse(args[1:])
+		network = "kcp"
+	} else {
+		network = "tcp"
+	}
 
 	if echoServer != "" {
 		ln, err := startEchoServer(echoServer)

@@ -217,7 +217,7 @@ func main() {
 	var reuseTimeout int
 	var sentCacheSize int
 
-	// kcp argments
+	// kcp options
 	var fecData int
 	var fecParity int
 
@@ -238,12 +238,6 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
-	args := flag.Args()
-	if len(args) < 1 {
-		Error("invalid network argument")
-		os.Exit(1)
-	}
-
 	glbLocalConnProvider = new(LocalConnProvider)
 	glbLocalConnProvider.ConfigFile = config
 	Info("config file: %s", glbLocalConnProvider.ConfigFile)
@@ -261,25 +255,23 @@ func main() {
 
 	go handleSignal()
 
-	network := args[0]
 	options := &Options{
 		timeout: reuseTimeout,
-		laddr:   listen,
-		network: network,
 	}
 
-	if network == "tcp" {
-		// tcp.Parse(args[1:])
-	} else if network == "kcp" {
+	var network string
+	args := flag.Args()
+
+	if len(args) > 0 && args[0] == "kcp" {
 		kcp.Parse(args[1:])
 		options.fecData = fecData
 		options.fecParity = fecParity
+		network = "kcp"
 	} else {
-		Error("invalid network type.")
-		os.Exit(1)
+		network = "tcp"
 	}
 	glbScpServer = NewSCPServer(options)
 
 	Log("options: %v", options)
-	glbScpServer.Start()
+	glbScpServer.Start(network, listen)
 }
