@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"net"
 	"sync"
 	"time"
 
@@ -23,6 +22,14 @@ type SCPConn struct {
 
 	reuseCh      chan struct{}
 	reuseTimeout time.Duration
+}
+
+type closeWriter interface {
+	CloseWrite() error
+}
+
+type closeReader interface {
+	CloseRead() error
 }
 
 func (s *SCPConn) setErrorWithLocked(err error) {
@@ -160,13 +167,17 @@ func (s *SCPConn) Close() error {
 }
 
 func (s *SCPConn) closeWrite() error {
-	tcpConn := s.Conn.RawConn().(*net.TCPConn)
-	return tcpConn.CloseWrite()
+	if tcpConn, ok := s.Conn.RawConn().(closeWriter); ok {
+		return tcpConn.CloseWrite()
+	}
+	return s.Conn.Close()
 }
 
 func (s *SCPConn) closeRead() error {
-	tcpConn := s.Conn.RawConn().(*net.TCPConn)
-	return tcpConn.CloseRead()
+	if tcpConn, ok := s.Conn.RawConn().(closeReader); ok {
+		return tcpConn.CloseRead()
+	}
+	return s.Conn.Close()
 }
 
 func (s *SCPConn) CloseRead() error {

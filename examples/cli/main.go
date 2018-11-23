@@ -6,17 +6,26 @@ import (
 	"log"
 	"net"
 	"os"
-	//"fmt"
 
+	//"fmt"
 	"github.com/ejoy/goscon/scp"
+	"github.com/xtaci/kcp-go"
 )
 
-func getOldScon(sent string, connect string, targetServer string) (*scp.Conn, error) {
+func DialWithOptions(network, connect string, fecData, fecParity int) (net.Conn, error) {
+	if network == "tcp" {
+		return net.Dial(network, connect)
+	} else {
+		return kcp.DialWithOptions(connect, nil, fecData, fecParity)
+	}
+}
+
+func getOldScon(network, sent string, connect string, targetServer string, fecData, fecParity int) (*scp.Conn, error) {
 	if sent == "" {
 		return nil, nil
 	}
 
-	conn, err := net.Dial("tcp", connect)
+	conn, err := DialWithOptions(network, connect, fecData, fecParity)
 	if err != nil {
 		return nil, err
 	}
@@ -40,17 +49,31 @@ func (sf *stdoutFormater) Write(data []byte) (int, error) {
 
 func main() {
 	var sent, connect, targetServer string
+	var fecData int
+	var fecParity int
+	var network string
 	flag.StringVar(&connect, "connect", "127.0.0.1:1248", "connect to")
 	flag.StringVar(&sent, "sent", "hello, world!\n", "sent")
 	flag.StringVar(&targetServer, "targetServer", "", "target server")
+	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
+	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
+	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 	flag.Parse()
 
-	oldScon, err := getOldScon(sent, connect, targetServer)
+	args := flag.Args()
+	if len(args) > 0 && args[0] == "kcp" {
+		kcp.Parse(args[1:])
+		network = "kcp"
+	} else {
+		network = "tcp"
+	}
+
+	oldScon, err := getOldScon(network, sent, connect, targetServer, fecData, fecParity)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	conn, err := net.Dial("tcp", connect)
+	conn, err := DialWithOptions(network, connect, fecData, fecParity)
 	if err != nil {
 		log.Fatal(err)
 	}

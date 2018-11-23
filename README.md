@@ -9,6 +9,25 @@ client和goscon之间使用断线重连协议，goscon把客户端的请求内�
 
 编译时开启`sproto`扩展，可以新建连接后自动给后端发送一条`sproto`消息，宣布客户端的IP地址信息。
 
+启动tcp网关：
+
+```
+./goscon -listen="0.0.0.0:1234" -config="/path/to/conf"
+./goscon -listen="0.0.0.0:1234" -config="/path/to/conf" -tcp=""
+```
+
+启动kcp网关:
+
+```
+./goscon -listen="0.0.0.0:1234" -config="/path/to/conf" -kcp="fec_data:0,fec_parity:0"
+```
+
+同时启动：
+
+```
+./goscon -listen="0.0.0.0:1234" -config="/path/to/conf" -tcp="" -kcp="fec_data:0,fec_parity:0"
+```
+
 ## 协议
 
 ### 新建连接

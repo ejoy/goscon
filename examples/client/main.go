@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/ejoy/goscon/scp"
+	"github.com/xtaci/kcp-go"
 )
 
 type ClientCase struct {
@@ -83,8 +84,16 @@ func (cc *ClientCase) testN(conn *scp.Conn, packets int) error {
 	return nil
 }
 
+func Dial(network, connect string) (net.Conn, error) {
+	if network == "tcp" {
+		return net.Dial(network, connect)
+	} else {
+		return kcp.DialWithOptions(connect, nil, fecData, fecParity)
+	}
+}
+
 func (cc *ClientCase) Start() error {
-	old, err := net.Dial("tcp", cc.connect)
+	old, err := Dial(network, cc.connect)
 	if err != nil {
 		return err
 	}
@@ -96,7 +105,7 @@ func (cc *ClientCase) Start() error {
 		return err
 	}
 
-	new, err := net.Dial("tcp", cc.connect)
+	new, err := Dial(network, cc.connect)
 	if err != nil {
 		return err
 	}
@@ -160,6 +169,8 @@ func testN(addr string) {
 
 var optConcurrent, optPackets, optMinPacket, optMaxPacket int
 var optVerbose bool
+var network string
+var fecData, fecParity int
 
 func main() {
 	var echoServer string
@@ -172,7 +183,19 @@ func main() {
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
 	flag.StringVar(&sconServer, "sconServer", "127.0.0.1:1248", "connect to scon server")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
+	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
+	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
+	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 	flag.Parse()
+
+	args := flag.Args()
+
+	if len(args) > 0 && args[0] == "kcp" {
+		kcp.Parse(args[1:])
+		network = "kcp"
+	} else {
+		network = "tcp"
+	}
 
 	if echoServer != "" {
 		ln, err := startEchoServer(echoServer)
