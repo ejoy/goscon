@@ -15,6 +15,8 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -210,20 +212,50 @@ func wrapperHook(provider *LocalConnProvider) {
 	}
 }
 
+type OptionsFlag struct {
+	set       bool
+	fecData   int
+	fecParity int
+}
+
+func (o *OptionsFlag) String() string {
+	return fmt.Sprintf("set=%v,fecData=%v,fecParity=%v", o.set, o.fecData, o.fecParity)
+}
+
+func (o *OptionsFlag) Set(value string) error {
+	o.set = true
+	pairs := strings.Split(value, ",")
+	for _, pair := range pairs {
+		option := strings.Split(pair, ":")
+		switch option[0] {
+		case "fec_data":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			o.fecData = data
+		case "fec_parity":
+			parity, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			o.fecParity = parity
+		}
+	}
+	return nil
+}
+
 func main() {
 	// deal with arguments
-	var tcp, kcp bool
+	var tcp OptionsFlag
+	var kcp OptionsFlag
 	var config string
 	var listen string
 	var reuseTimeout int
 	var sentCacheSize int
 
-	// kcp options
-	var fecData int
-	var fecParity int
-
-	flag.BoolVar(&tcp, "tcp", false, "listen for tcp port")
-	flag.BoolVar(&kcp, "kcp", false, "listen for kcp port")
+	flag.Var(&tcp, "tcp", "listen for tcp port")
+	flag.Var(&kcp, "kcp", "listen for kcp port default (default \"fec_data:0,fec_parity:0\")")
 	flag.StringVar(&config, "config", "./settings.conf", "backend servers config file")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
@@ -231,10 +263,6 @@ func main() {
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
 	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
-
-	// kcp options
-	flag.IntVar(&fecData, "fec_data", 0, "FEC: number of shards to split the data into")
-	flag.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 
 	flag.Usage = usage
 	flag.Parse()
@@ -258,24 +286,27 @@ func main() {
 
 	glbScpServer = NewSCPServer(&Options{
 		timeout:   reuseTimeout,
-		fecData:   fecData,
-		fecParity: fecParity,
+		fecData:   kcp.fecData,
+		fecParity: kcp.fecParity,
 	})
 
 	var wg sync.WaitGroup
 
-	if !kcp && !tcp { // tcp is default
-		tcp = true
+	if !kcp.set && !tcp.set { // tcp is default
+		tcp.set = true
 	}
 
-	if tcp {
+	Log("tcp = %v", tcp)
+	Log("kcp = %v", kcp)
+
+	if tcp.set {
 		wg.Add(1)
 		go func() {
 			glbScpServer.Start("tcp", listen)
 			wg.Done()
 		}()
 	}
-	if kcp {
+	if kcp.set {
 		wg.Add(1)
 		go func() {
 			glbScpServer.Start("kcp", listen)
