@@ -212,6 +212,7 @@ func wrapperHook(provider *LocalConnProvider) {
 
 func main() {
 	// deal with arguments
+	var tcp, kcp bool
 	var config string
 	var listen string
 	var reuseTimeout int
@@ -221,6 +222,8 @@ func main() {
 	var fecData int
 	var fecParity int
 
+	flag.BoolVar(&tcp, "tcp", false, "listen for tcp port")
+	flag.BoolVar(&kcp, "kcp", false, "listen for kcp port")
 	flag.StringVar(&config, "config", "./settings.conf", "backend servers config file")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
@@ -229,11 +232,9 @@ func main() {
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
 	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
 
-	// tcp := flag.NewFlagSet("tcp", flag.ExitOnError)
-
-	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
-	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
-	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
+	// kcp options
+	flag.IntVar(&fecData, "fec_data", 0, "FEC: number of shards to split the data into")
+	flag.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 
 	flag.Usage = usage
 	flag.Parse()
@@ -255,23 +256,31 @@ func main() {
 
 	go handleSignal()
 
-	options := &Options{
-		timeout: reuseTimeout,
+	glbScpServer = NewSCPServer(&Options{
+		timeout:   reuseTimeout,
+		fecData:   fecData,
+		fecParity: fecParity,
+	})
+
+	var wg sync.WaitGroup
+
+	if !kcp && !tcp { // tcp is default
+		tcp = true
 	}
 
-	var network string
-	args := flag.Args()
-
-	if len(args) > 0 && args[0] == "kcp" {
-		kcp.Parse(args[1:])
-		options.fecData = fecData
-		options.fecParity = fecParity
-		network = "kcp"
-	} else {
-		network = "tcp"
+	if tcp {
+		wg.Add(1)
+		go func() {
+			glbScpServer.Start("tcp", listen)
+			wg.Done()
+		}()
 	}
-	glbScpServer = NewSCPServer(options)
-
-	Log("options: %v", options)
-	glbScpServer.Start(network, listen)
+	if kcp {
+		wg.Add(1)
+		go func() {
+			glbScpServer.Start("kcp", listen)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
 }
