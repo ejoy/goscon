@@ -26,7 +26,7 @@ import (
 var errNoHost = errors.New("no host")
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: %s [config]\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "usage: %s [options]\n", os.Args[0])
 	flag.PrintDefaults()
 	os.Exit(1)
 }
