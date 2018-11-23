@@ -219,7 +219,7 @@ type OptionsFlag struct {
 }
 
 func (o *OptionsFlag) String() string {
-	return fmt.Sprintf("set=%v,fecData=%v,fecParity=%v", o.set, o.fecData, o.fecParity)
+	return fmt.Sprint(*o)
 }
 
 func (o *OptionsFlag) Set(value string) error {
