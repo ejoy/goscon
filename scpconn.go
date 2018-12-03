@@ -50,7 +50,7 @@ func (s *SCPConn) setErrorWithLocked(err error) {
 			s.reuseCh = make(chan struct{})
 			go func() {
 				select {
-				case <-time.Tick(s.reuseTimeout):
+				case <-time.After(s.reuseTimeout):
 					s.Close()
 				case <-s.reuseCh:
 				}
