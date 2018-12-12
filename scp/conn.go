@@ -228,13 +228,13 @@ func (c *Conn) clientReuseHandshake() error {
 		return err
 	}
 
-	if err := newError(rp.code); err != nil {
+	if err := newError(rp.code, ""); err != nil {
 		return err
 	}
 
 	diff := c.out.GetBytesSent() - int(rp.received)
 	if diff < 0 || diff > c.sentCache.Len() {
-		return ErrNotAcceptable
+		return fmt.Errorf("406 Not Acceptable")
 	}
 
 	if diff > 0 {
@@ -293,7 +293,7 @@ func (c *Conn) serverReuseHandshake(rq *reuseConnReq) error {
 		received: 0,
 		code:     SCPStatusOK,
 	}
-
+	extra := fmt.Sprintf("conn id[%d]", rq.id)
 OuterLoop:
 	for {
 		oldConn := c.config.ScpServer.QueryByID(rq.id)
@@ -335,7 +335,7 @@ OuterLoop:
 		return err
 	}
 
-	if err := newError(rp.code); err != nil {
+	if err := newError(rp.code, extra); err != nil {
 		return err
 	}
 

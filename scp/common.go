@@ -17,24 +17,23 @@ const (
 )
 
 var ErrIllegalMsg = fmt.Errorf("Illegal Message")
-var ErrUnauthorized = fmt.Errorf("401 Unauthorized")
-var ErrIndexExpired = fmt.Errorf("403 Index Expired")
-var ErrIDNotFound = fmt.Errorf("404 ID Not Found")
-var ErrNotAcceptable = fmt.Errorf("406 Not Acceptable")
 
-func newError(code int) error {
+func newError(code int, extra string) error {
+	if extra == "" {
+		extra = "no extra info"
+	}
 	switch code {
-	case SCPStatusOK:
-		return nil
-	case SCPStatusUnauthorized:
-		return ErrUnauthorized
-	case SCPStatusExpired:
-		return ErrIndexExpired
-	case SCPStatusIDNotFound:
-		return ErrIDNotFound
-	case SCPStatusNotAcceptable:
-		return ErrNotAcceptable
-	default:
-		return fmt.Errorf("%d Unknown", code)
+		case SCPStatusOK:
+			return nil
+		case SCPStatusUnauthorized:
+			return fmt.Errorf("401 Unauthorized, %s", extra)
+		case SCPStatusExpired:
+			return fmt.Errorf("403 Index Expired, %s", extra)
+		case SCPStatusIDNotFound:
+			return fmt.Errorf("404 ID Not Found, %s", extra)
+		case SCPStatusNotAcceptable:
+			return fmt.Errorf("406 Not Acceptable, %s", extra)
+		default:
+			return fmt.Errorf("%d Unknown", code)
 	}
 }
