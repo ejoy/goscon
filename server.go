@@ -276,7 +276,7 @@ func (ss *SCPServer) Start(network, laddr string) error {
 func NewSCPServer(options *Options) *SCPServer {
 	return &SCPServer{
 		options:      options,
-		reuseTimeout: time.Duration(options.timeout) * time.Second,
+		reuseTimeout: time.Duration(options.reuseTimeout) * time.Second,
 		idAllocator:  scp.NewIDAllocator(1),
 		connPairs:    make(map[int]*ConnPair),
 	}
