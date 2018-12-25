@@ -8,15 +8,13 @@ import (
 )
 
 type (
-	// Listener 监听器
 	Listener interface {
 		Accept() (Conn, error)
 	}
 
-	// Conn 封装kcp和tcp的接口
 	Conn interface {
+		net.Conn
 		SetOptions(*Options)
-		GetConn() net.Conn
 	}
 
 	TcpOptions struct {
@@ -53,22 +51,14 @@ type (
 		options *KcpOptions
 	}
 
-	NetTCPConn struct {
+	tcpConn struct {
 		*net.TCPConn
 		readTimeout    int
 	}
 
-	tcpConn struct {
-		conn *NetTCPConn
-	}
-
-	NetKCPConn struct {
+	kcpConn struct {
 		*kcp.UDPSession
 		readTimeout    int
-	}
-
-	kcpConn struct {
-		conn *NetKCPConn
 	}
 )
 
@@ -94,33 +84,29 @@ func ListenWithOptions(network, laddr string, options *Options) (Listener, error
 
 func (t tcpListener) Accept() (Conn, error) {
 	conn, err := t.ln.AcceptTCP()
-	return tcpConn{conn: &NetTCPConn{conn, t.options.readTimeout}}, err
+	return &tcpConn{conn, t.options.readTimeout}, err
 }
 
 func (k kcpListener) Accept() (Conn, error) {
 	conn, err := k.ln.AcceptKCP()
-	return kcpConn{conn: &NetKCPConn{conn, k.options.readTimeout}}, err
+	return &kcpConn{conn, k.options.readTimeout}, err
 }
 
-func (c *NetTCPConn) Read(b []byte) (n int, err error) {
-	if c.readTimeout > 0 {
-		timeout := time.Duration(c.readTimeout) * time.Second
-		c.SetReadDeadline(time.Now().Add(timeout))
+func (t *tcpConn) Read(b []byte) (n int, err error) {
+	if t.readTimeout > 0 {
+		timeout := time.Duration(t.readTimeout) * time.Second
+		t.SetReadDeadline(time.Now().Add(timeout))
 	}
-	return c.TCPConn.Read(b)
+	return t.TCPConn.Read(b)
 }
 
-func (t tcpConn) SetOptions(options *Options) {
-	t.conn.SetKeepAlive(true)
-	t.conn.SetKeepAlivePeriod(time.Second * 60)
-	t.conn.SetLinger(0)
+func (t *tcpConn) SetOptions(options *Options) {
+	t.SetKeepAlive(true)
+	t.SetKeepAlivePeriod(time.Second * 60)
+	t.SetLinger(0)
 }
 
-func (t tcpConn) GetConn() net.Conn {
-	return t.conn
-}
-
-func (c *NetKCPConn) Read(b []byte) (n int, err error) {
+func (c *kcpConn) Read(b []byte) (n int, err error) {
 	if c.readTimeout > 0 {
 		timeout := time.Duration(c.readTimeout) * time.Second
 		c.SetReadDeadline(time.Now().Add(timeout))
@@ -128,12 +114,8 @@ func (c *NetKCPConn) Read(b []byte) (n int, err error) {
 	return c.UDPSession.Read(b)
 }
 
-func (k kcpConn) SetOptions(options *Options) {
+func (k *kcpConn) SetOptions(options *Options) {
 	kcpOptions := options.kcpOptions
-	k.conn.SetWindowSize(kcpOptions.sndWnd, kcpOptions.rcvWnd)
-	k.conn.SetNoDelay(kcpOptions.nodelay, kcpOptions.interval, kcpOptions.resend, kcpOptions.nc)
-}
-
-func (k kcpConn) GetConn() net.Conn {
-	return k.conn
+	k.SetWindowSize(kcpOptions.sndWnd, kcpOptions.rcvWnd)
+	k.SetNoDelay(kcpOptions.nodelay, kcpOptions.interval, kcpOptions.resend, kcpOptions.nc)
 }
