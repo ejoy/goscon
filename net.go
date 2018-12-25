@@ -53,12 +53,12 @@ type (
 
 	tcpConn struct {
 		*net.TCPConn
-		readTimeout    int
+		readTimeout    time.Duration
 	}
 
 	kcpConn struct {
 		*kcp.UDPSession
-		readTimeout    int
+		readTimeout    time.Duration
 	}
 )
 
@@ -84,18 +84,19 @@ func ListenWithOptions(network, laddr string, options *Options) (Listener, error
 
 func (t tcpListener) Accept() (Conn, error) {
 	conn, err := t.ln.AcceptTCP()
-	return &tcpConn{conn, t.options.readTimeout}, err
+	timeout := time.Duration(t.options.readTimeout) * time.Second
+	return &tcpConn{conn, timeout}, err
 }
 
 func (k kcpListener) Accept() (Conn, error) {
 	conn, err := k.ln.AcceptKCP()
-	return &kcpConn{conn, k.options.readTimeout}, err
+	timeout := time.Duration(k.options.readTimeout) * time.Second
+	return &kcpConn{conn, timeout}, err
 }
 
 func (t *tcpConn) Read(b []byte) (n int, err error) {
 	if t.readTimeout > 0 {
-		timeout := time.Duration(t.readTimeout) * time.Second
-		t.SetReadDeadline(time.Now().Add(timeout))
+		t.SetReadDeadline(time.Now().Add(t.readTimeout))
 	}
 	return t.TCPConn.Read(b)
 }
@@ -106,12 +107,11 @@ func (t *tcpConn) SetOptions(options *Options) {
 	t.SetLinger(0)
 }
 
-func (c *kcpConn) Read(b []byte) (n int, err error) {
-	if c.readTimeout > 0 {
-		timeout := time.Duration(c.readTimeout) * time.Second
-		c.SetReadDeadline(time.Now().Add(timeout))
+func (k *kcpConn) Read(b []byte) (n int, err error) {
+	if k.readTimeout > 0 {
+		k.SetReadDeadline(time.Now().Add(k.readTimeout))
 	}
-	return c.UDPSession.Read(b)
+	return k.UDPSession.Read(b)
 }
 
 func (k *kcpConn) SetOptions(options *Options) {
