@@ -198,7 +198,16 @@ func handleSignal() {
 var glbScpServer *SCPServer
 var glbLocalConnProvider *LocalConnProvider
 
-var optUploadMinPacket, optUploadMaxDelay int
+var (
+	optProtocol = 0
+	optUploadMinPacket int
+	optUploadMaxDelay  int
+)
+
+const (
+	TCP = 1 << 0
+	KCP = 1 << 1
+)
 
 var glbWrapperHooks []func(provider *LocalConnProvider)
 
@@ -212,34 +221,99 @@ func wrapperHook(provider *LocalConnProvider) {
 	}
 }
 
-type OptionsFlag struct {
-	set       bool
-	fecData   int
-	fecParity int
+func (flag *TcpOptions) String() string {
+	return fmt.Sprint(*flag)
 }
 
-func (o *OptionsFlag) String() string {
-	return fmt.Sprint(*o)
-}
-
-func (o *OptionsFlag) Set(value string) error {
-	o.set = true
-	pairs := strings.Split(value, ",")
-	for _, pair := range pairs {
+func (flag *TcpOptions) Set(value string) error {
+	optProtocol |= TCP
+	for _, pair := range strings.Split(value, ",") {
 		option := strings.Split(pair, ":")
 		switch option[0] {
+		case "read_timeout":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.readTimeout = data
+		}
+	}
+	return nil
+}
+
+func (flag *KcpOptions) String() string {
+	return fmt.Sprint(*flag)
+}
+
+func (flag *KcpOptions) Set(value string) error {
+	optProtocol |= KCP
+	// default vals
+	flag.readTimeout = 60
+	flag.sndWnd = 1024
+	flag.rcvWnd = 1024
+	flag.nodelay = 1
+	flag.interval = 10
+	flag.resend = 2
+	flag.nc = 1
+	flag.fecData = 0
+	flag.fecParity = 0
+	for _, pair := range strings.Split(value, ",") {
+		option := strings.Split(pair, ":")
+		switch option[0] {
+		case "read_timeout":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.readTimeout = data
+		case "snd_wnd":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.sndWnd = data
+		case "rcv_wnd":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.rcvWnd = data
+		case "nodelay":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.nodelay = data
+		case "interval":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.interval = data
+		case "resend":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.resend = data
+		case "nc":
+			data, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.nc = data
 		case "fec_data":
 			data, err := strconv.Atoi(option[1])
 			if err != nil {
 				return err
 			}
-			o.fecData = data
+			flag.fecData = data
 		case "fec_parity":
 			parity, err := strconv.Atoi(option[1])
 			if err != nil {
 				return err
 			}
-			o.fecParity = parity
+			flag.fecParity = parity
 		}
 	}
 	return nil
@@ -247,19 +321,19 @@ func (o *OptionsFlag) Set(value string) error {
 
 func main() {
 	// deal with arguments
-	var tcp OptionsFlag
-	var kcp OptionsFlag
+	var tcp TcpOptions
+	var kcp KcpOptions
 	var config string
 	var listen string
 	var reuseTimeout int
 	var sentCacheSize int
 
-	flag.Var(&tcp, "tcp", "listen for tcp port")
-	flag.Var(&kcp, "kcp", "listen for kcp port default (default \"fec_data:0,fec_parity:0\")")
+	flag.Var(&tcp, "tcp", "tcp options, use default by setting empty literal")
+	flag.Var(&kcp, "kcp", "kcp options, use default by setting empty literal")
 	flag.StringVar(&config, "config", "./settings.conf", "backend servers config file")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
-	flag.IntVar(&reuseTimeout, "timeout", 30, "reuse timeout")
+	flag.IntVar(&reuseTimeout, "reuseTimeout", 30, "reuse timeout")
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
 	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
@@ -285,33 +359,30 @@ func main() {
 	go handleSignal()
 
 	glbScpServer = NewSCPServer(&Options{
-		timeout:   reuseTimeout,
-		fecData:   kcp.fecData,
-		fecParity: kcp.fecParity,
+		reuseTimeout:   reuseTimeout,
+
+		tcpOptions: &tcp,
+		kcpOptions: &kcp,
 	})
 
 	var wg sync.WaitGroup
 
-	if !kcp.set && !tcp.set { // tcp is default
-		tcp.set = true
-	}
-
-	Log("tcp = %v", tcp)
-	Log("kcp = %v", kcp)
-
-	if tcp.set {
+	if optProtocol == 0 || optProtocol & TCP != 0 {
 		wg.Add(1)
 		go func() {
+			Log("tcp options: %v", tcp)
 			glbScpServer.Start("tcp", listen)
 			wg.Done()
 		}()
 	}
-	if kcp.set {
+	if optProtocol & KCP != 0 {
 		wg.Add(1)
 		go func() {
+			Log("kcp options: %v", kcp)
 			glbScpServer.Start("kcp", listen)
 			wg.Done()
 		}()
 	}
+
 	wg.Wait()
 }

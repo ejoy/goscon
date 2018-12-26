@@ -219,9 +219,8 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	connPair.Pump()
 }
 
-func (ss *SCPServer) handleClient(c Conn) {
+func (ss *SCPServer) handleClient(conn Conn) {
 	defer Recover()
-	conn := c.GetConn()
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 	if err := scon.Handshake(); err != nil {
 		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())
@@ -229,7 +228,7 @@ func (ss *SCPServer) handleClient(c Conn) {
 		return
 	}
 
-	c.SetOptions(ss.options)
+	conn.SetOptions(ss.options)
 
 	if scon.IsReused() {
 		ss.onReusedConn(scon)
@@ -276,7 +275,7 @@ func (ss *SCPServer) Start(network, laddr string) error {
 func NewSCPServer(options *Options) *SCPServer {
 	return &SCPServer{
 		options:      options,
-		reuseTimeout: time.Duration(options.timeout) * time.Second,
+		reuseTimeout: time.Duration(options.reuseTimeout) * time.Second,
 		idAllocator:  scp.NewIDAllocator(1),
 		connPairs:    make(map[int]*ConnPair),
 	}
