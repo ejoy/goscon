@@ -22,6 +22,10 @@ type Stat struct {
 	percent map[int]int
 }
 
+var statInterval []int
+var statGap int
+var statLevel int
+
 func DialWithOptions(network, connect string, fecData, fecParity int) (net.Conn, error) {
 	if network == "tcp" {
 		return net.Dial(network, connect)
@@ -54,8 +58,7 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 	writer := bufio.NewWriter(conn)
 
 	stat := Stat{conn: i, slow: 0, round: 0, percent: make(map[int]int)}
-	interval := []int{1, 10, 100, 200, 0xFFFFFFFF}
-	for _, bound := range interval {
+	for _, bound := range statInterval {
 		stat.percent[bound] = 0
 	}
 
@@ -88,12 +91,13 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 		if elapsed > 10*time.Millisecond {
 			stat.slow++
 		}
-		for _, bound := range interval {
-			if elapsed <= time.Duration(bound)*time.Millisecond {
-				stat.percent[bound]++
-				break
-			}
+		idx := int(elapsed / time.Millisecond)
+		if idx < statLevel {
+			stat.percent[statInterval[idx]]++
+		} else {
+			stat.percent[0xFFFFFFFF]++
 		}
+
 		if stat.round%100 == 0 {
 			chStat <- stat
 		}
@@ -110,6 +114,8 @@ func main() {
 	flag.StringVar(&connect, "connect", "127.0.0.1:1248", "connect to")
 	flag.StringVar(&targetServer, "targetServer", "", "target server")
 	flag.IntVar(&connections, "connections", 1, "concurrent connections")
+	flag.IntVar(&statGap, "statGap", 10, "stat milliseconds per gap")
+	flag.IntVar(&statLevel, "statLevel", 10, "stat level")
 	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
 	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
 	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
@@ -123,6 +129,20 @@ func main() {
 	} else {
 		network = "tcp"
 	}
+
+	if statLevel < 1 {
+		statLevel = 1
+	}
+
+	if statGap < 1 {
+		statGap = 1
+	}
+	statInterval = make([]int, statLevel + 1)
+
+	for i := 0; i < statLevel; i++ {
+		statInterval[i] = (i + 1) * statGap
+	}
+	statInterval[statLevel] = 0xFFFFFFFF
 
 	chStat := make(chan Stat, 4*connections)
 	for i := 0; i < connections; i++ {
@@ -139,6 +159,10 @@ func main() {
 	for stat := range chStat {
 		log.Printf("======== stat result on conn: %d", stat.conn)
 		log.Printf(">>>> slow: %d, round: %d, slow rate: %.3f", stat.slow, stat.round, float32(stat.slow)/float32(stat.round))
-		log.Printf(">>>> distribution: (0, 1]: %d, (1, 10]: %d, (10, 100]: %d, (100, 200]: %d, (200, inf]: %d", stat.percent[1], stat.percent[10], stat.percent[100], stat.percent[200], stat.percent[0xFFFFFFFF])
+		log.Printf(">>>> distribution")
+		for i := 0; i < statLevel; i++ {
+			log.Printf("bound (%d, %d]: %d", i * statGap, (i + 1) * statGap, stat.percent[statInterval[i]])
+		}
+		log.Printf("bound (%d, inf]: %d", statLevel * statGap, stat.percent[0xFFFFFFFF])
 	}
 }
