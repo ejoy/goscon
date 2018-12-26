@@ -99,7 +99,14 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 		}
 
 		if stat.round%100 == 0 {
-			chStat <- stat
+			copy := Stat{conn: i, slow: 0, round: 0, percent: make(map[int]int)}
+			copy.conn = stat.conn
+			copy.slow = stat.slow
+			copy.round = stat.round
+			for k, v := range stat.percent {
+				copy.percent[k] = v
+			}
+			chStat <- copy
 		}
 	}
 }
