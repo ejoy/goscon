@@ -19,10 +19,9 @@ type Stat struct {
 	conn    int
 	slow    int
 	round   int
-	percent map[int]int
+	percent []int
 }
 
-var statInterval []int
 var statGap int
 var statLevel int
 
@@ -57,10 +56,7 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 
 	writer := bufio.NewWriter(conn)
 
-	stat := Stat{conn: i, slow: 0, round: 0, percent: make(map[int]int)}
-	for _, bound := range statInterval {
-		stat.percent[bound] = 0
-	}
+	stat := Stat{conn: i, slow: 0, round: 0, percent: make([]int, statLevel + 1)}
 
 	for range ticker.C {
 		start := time.Now()
@@ -91,22 +87,15 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 		if elapsed > 10*time.Millisecond {
 			stat.slow++
 		}
-		idx := int(elapsed / time.Millisecond)
+		idx := int(elapsed / (time.Duration(statGap) * time.Millisecond))
 		if idx < statLevel {
-			stat.percent[statInterval[idx]]++
+			stat.percent[idx]++
 		} else {
-			stat.percent[0xFFFFFFFF]++
+			stat.percent[statLevel]++
 		}
 
 		if stat.round%100 == 0 {
-			copy := Stat{conn: i, slow: 0, round: 0, percent: make(map[int]int)}
-			copy.conn = stat.conn
-			copy.slow = stat.slow
-			copy.round = stat.round
-			for k, v := range stat.percent {
-				copy.percent[k] = v
-			}
-			chStat <- copy
+			chStat <- stat
 		}
 	}
 }
@@ -144,12 +133,6 @@ func main() {
 	if statGap < 1 {
 		statGap = 1
 	}
-	statInterval = make([]int, statLevel + 1)
-
-	for i := 0; i < statLevel; i++ {
-		statInterval[i] = (i + 1) * statGap
-	}
-	statInterval[statLevel] = 0xFFFFFFFF
 
 	chStat := make(chan Stat, 4*connections)
 	for i := 0; i < connections; i++ {
@@ -168,8 +151,8 @@ func main() {
 		log.Printf(">>>> slow: %d, round: %d, slow rate: %.3f", stat.slow, stat.round, float32(stat.slow)/float32(stat.round))
 		log.Printf(">>>> distribution")
 		for i := 0; i < statLevel; i++ {
-			log.Printf("bound (%d, %d]: %d", i * statGap, (i + 1) * statGap, stat.percent[statInterval[i]])
+			log.Printf("bound (%d, %d]: %d", i * statGap, (i + 1) * statGap, stat.percent[i])
 		}
-		log.Printf("bound (%d, inf]: %d", statLevel * statGap, stat.percent[0xFFFFFFFF])
+		log.Printf("bound (%d, inf]: %d", statLevel * statGap, stat.percent[statLevel])
 	}
 }
