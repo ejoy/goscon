@@ -53,6 +53,7 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 
 	writer := bufio.NewWriter(conn)
 
+
 	stat := Stat{conn: i, slow: 0, round: 0, percent: make(map[int]int)}
 	interval := []int{1, 10, 100, 200, 0xFFFFFFFF}
 	for _, bound := range interval {
@@ -102,6 +103,7 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 
 func main() {
 	var connect, targetServer string
+
 	var connections int
 	var payload int
 	var fecData int
@@ -113,6 +115,7 @@ func main() {
 	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
 	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
 	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
+
 	flag.IntVar(&payload, "payload", 0, "http test payload size")
 	flag.Parse()
 
