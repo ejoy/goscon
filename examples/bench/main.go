@@ -16,10 +16,10 @@ import (
 )
 
 type Stat struct {
-	conn     int
-	slow     int
-	round    int
-	percent  map[int]int
+	conn    int
+	slow    int
+	round   int
+	percent map[int]int
 }
 
 func DialWithOptions(network, connect string, fecData, fecParity int) (net.Conn, error) {
@@ -75,7 +75,7 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 			log.Printf("read err:%s", err)
 			break
 		}
-		defer resp.Body.Close()
+		resp.Body.Close()
 
 		if resp.StatusCode != 200 {
 			log.Printf("http err: %s", resp.Status)
@@ -85,16 +85,16 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 		elapsed := time.Now().Sub(start)
 
 		stat.round++
-		if elapsed > 10 * time.Millisecond {
+		if elapsed > 10*time.Millisecond {
 			stat.slow++
 		}
 		for _, bound := range interval {
-			if elapsed <= time.Duration(bound) * time.Millisecond {
+			if elapsed <= time.Duration(bound)*time.Millisecond {
 				stat.percent[bound]++
 				break
 			}
 		}
-		if stat.round % 100 == 0 {
+		if stat.round%100 == 0 {
 			chStat <- stat
 		}
 	}
