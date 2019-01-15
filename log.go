@@ -6,56 +6,83 @@
 package main
 
 import (
-	"io"
-	"log"
-	"os"
+	"fmt"
+	"log/syslog"
 	"runtime"
+	"time"
 )
 
-var logger *log.Logger
+var syslog_w *syslog.Writer
 var logLevel int
+var log_last_tsec int64
+var log_last_tstr string
 
-func init() {
-	//logger = log.New(io.Writer(os.Stderr), "", log.Ldate | log.Lmicroseconds | log.Lshortfile)
-	logger = log.New(io.Writer(os.Stderr), "", log.Ldate|log.Lmicroseconds)
+func _gen_logstr(format string, a ...interface{}) string {
+	ts := time.Now().Unix()
+	if(ts != log_last_tsec) {
+		log_last_tsec = ts
+		log_last_tstr = fmt.Sprintf(time.Unix(ts, 0).Format("[2006-01-02 15:04:05] "))
+	}
+	return log_last_tstr + fmt.Sprintf(format, a...)
 }
 
-func _print(format string, a ...interface{}) {
-	logger.Printf(format, a...)
+func init() {
+	syslog_w, _ = syslog.New(syslog.LOG_INFO, "goscon")
+	log_last_tsec = 0
+}
+
+func _print(s string) {
+	fmt.Println(s)
 }
 
 func Debug(format string, a ...interface{}) {
 	if logLevel > 2 {
-		_print(format, a...)
+		s := _gen_logstr(format, a ...)
+		_print(s)
+		syslog_w.Debug(s)
 	}
 }
 
 func Info(format string, a ...interface{}) {
 	if logLevel > 1 {
-		_print(format, a...)
+		s := _gen_logstr(format, a ...)
+		_print(s)
+		syslog_w.Info(s)
 	}
 }
 
 func Error(format string, a ...interface{}) {
 	if logLevel > 0 {
-		_print(format, a...)
+		s := _gen_logstr(format, a ...)
+		_print(s)
+		syslog_w.Err(s)
 	}
 }
 
 func Panic(format string, a ...interface{}) {
-	_print(format, a...)
+	s := _gen_logstr(format, a ...)
+	_print(s)
+	syslog_w.Crit(s)	
 	panic("!!")
 }
 
 func Log(format string, a ...interface{}) {
-	_print(format, a...)
+	s := _gen_logstr(format, a ...)
+	_print(s)
+	syslog_w.Info(s)
 }
 
 func LogCurStack(format string, a ...interface{}) {
-	_print(format, a...)
+	s := _gen_logstr(format, a ...)
+	_print(s)
+	syslog_w.Info(s)
+	
 	buf := make([]byte, 8192)
 	runtime.Stack(buf, false)
-	_print("!!!!!stack!!!!!: %s", buf)
+
+	s = fmt.Sprintf("!!!!!stack!!!!!: %s", buf)
+	_print(s)
+	syslog_w.Info(s)
 }
 
 func Recover() {
