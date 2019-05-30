@@ -257,6 +257,9 @@ func (flag *KcpOptions) Set(value string) error {
 	flag.nc = 1
 	flag.fecData = 0
 	flag.fecParity = 0
+	flag.readBuffer = 4 * 1024 * 1024
+	flag.writeBuffer = 4 * 1024 * 1024
+	flag.reuseport = 8
 	for _, pair := range strings.Split(value, ",") {
 		option := strings.Split(pair, ":")
 		switch option[0] {
@@ -314,6 +317,24 @@ func (flag *KcpOptions) Set(value string) error {
 				return err
 			}
 			flag.fecParity = parity
+		case "read_buffer":
+			rbuffer, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.readBuffer = rbuffer
+		case "write_buffer":
+			wbuffer, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.writeBuffer = wbuffer
+		case "reuseport":
+			reuseport, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.reuseport = reuseport
 		}
 	}
 	return nil
@@ -378,12 +399,14 @@ func main() {
 		}()
 	}
 	if optProtocol&KCP != 0 {
-		wg.Add(1)
-		go func() {
-			Log("kcp options: %v", kcp)
-			glbScpServer.Start("kcp", listen)
-			wg.Done()
-		}()
+		wg.Add(kcp.reuseport)
+		for i := 0; i < kcp.reuseport; i++ {
+			go func() {
+				Log("kcp options: %v, %v", kcp, listen)
+				glbScpServer.Start("kcp", listen)
+				wg.Done()
+			}()
+		}
 	}
 
 	wg.Wait()

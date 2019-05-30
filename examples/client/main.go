@@ -11,7 +11,7 @@ import (
 	"os"
 
 	"github.com/ejoy/goscon/scp"
-	"github.com/xtaci/kcp-go"
+	kcp "github.com/ejoy/kcp-go"
 )
 
 type ClientCase struct {

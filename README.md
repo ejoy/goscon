@@ -1,5 +1,7 @@
 # gosconn
+
 断线重连服务器端代理
+如果需要用到端口复用的特性，要求 go version >= 1.11。
 
 ## 用法
 
@@ -110,3 +112,17 @@ CODE 是一个10进制三位数, 表示连接是否恢复:
 当连接恢复后, 服务器应当根据之前记录的发送出去的字节数（不计算每次握手包的字节）, 减去客户端通知它收到的字节数, 开始补发未收到的字节。
 客户端也做相同的事情。
 
+## kcp 选项
+
+* readTimeout       接收数据超时时间，单位为秒，默认 60 秒，超过 60 秒没有收到数据认为连接断开
+* rcvWnd            kcp连接的接收窗口，默认为 1KB
+* sndWnd            kcp连接的发送窗口，默认为 1KB
+* nodelay           是否启用 nodelay 模式
+* interval          kcp 调用 update 的时间间隔，单位是毫秒，默认 10ms
+* resend            快速重换模式，默认为 2，代表 2 次 ACK 跨越直接重传
+* nc                是否关闭流控，默认为 1，表示关闭
+* read_buffer       udp socket 的 RCV_BUF，单位为字节，默认为 4M
+* write_buffer      udp socket 的 SND_BUF，单位为字节，默认为 4M
+* reuseport         利用端口复用的特性，同时开启多个 Goroutine 监听端口，默认为 8
+* fec_data          fec 参数
+* fec_parity        fec 参数

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ejoy/goscon/scp"
-	"github.com/xtaci/kcp-go"
+	kcp "github.com/ejoy/kcp-go"
 )
 
 type Stat struct {
@@ -71,7 +71,7 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 
 	writer := bufio.NewWriter(conn)
 
-	stat := Stat{conn: i, slow: 0, round: 0, percent: make([]int, statLevel + 1)}
+	stat := Stat{conn: i, slow: 0, round: 0, percent: make([]int, statLevel+1)}
 
 	for range ticker.C {
 		start := time.Now()
@@ -171,8 +171,8 @@ func main() {
 		log.Printf(">>>> slow: %d, round: %d, slow rate: %.3f", stat.slow, stat.round, float32(stat.slow)/float32(stat.round))
 		log.Printf(">>>> distribution")
 		for i := 0; i < statLevel; i++ {
-			log.Printf("bound (%d, %d]: %d", i * statGap, (i + 1) * statGap, stat.percent[i])
+			log.Printf("bound (%d, %d]: %d", i*statGap, (i+1)*statGap, stat.percent[i])
 		}
-		log.Printf("bound (%d, inf]: %d", statLevel * statGap, stat.percent[statLevel])
+		log.Printf("bound (%d, inf]: %d", statLevel*statGap, stat.percent[statLevel])
 	}
 }

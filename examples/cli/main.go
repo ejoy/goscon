@@ -9,7 +9,7 @@ import (
 
 	//"fmt"
 	"github.com/ejoy/goscon/scp"
-	"github.com/xtaci/kcp-go"
+	kcp "github.com/ejoy/kcp-go"
 )
 
 func DialWithOptions(network, connect string, fecData, fecParity int) (net.Conn, error) {
