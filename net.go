@@ -35,6 +35,7 @@ type (
 
 	Options struct {
 		reuseTimeout int
+		handshakeTimeout int
 		tcpOptions    *TcpOptions
 		kcpOptions    *KcpOptions
 	}

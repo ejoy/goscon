@@ -326,6 +326,7 @@ func main() {
 	var config string
 	var listen string
 	var reuseTimeout int
+	var handshakeTimeout int
 	var sentCacheSize int
 
 	flag.Var(&tcp, "tcp", "tcp options, use default by setting empty literal")
@@ -334,6 +335,7 @@ func main() {
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
 	flag.IntVar(&reuseTimeout, "reuseTimeout", 30, "reuse timeout")
+	flag.IntVar(&handshakeTimeout, "handshakeTimeout", 30, "handshake stage timeout")
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
 	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
@@ -360,7 +362,7 @@ func main() {
 
 	glbScpServer = NewSCPServer(&Options{
 		reuseTimeout:   reuseTimeout,
-
+        handshakeTimeout: handshakeTimeout,
 		tcpOptions: &tcp,
 		kcpOptions: &kcp,
 	})
