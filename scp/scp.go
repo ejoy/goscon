@@ -3,6 +3,7 @@ package scp
 
 import (
 	"net"
+	"time"
 )
 
 type SCPServer interface {
@@ -17,6 +18,8 @@ type SCPServer interface {
 
 	// close a conneciton by id
 	CloseByID(id int) *Conn
+
+	HandshakeTimeout() time.Duration
 }
 
 type Config struct {
