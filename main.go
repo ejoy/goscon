@@ -214,11 +214,13 @@ func main() {
 	// deal with arguments
 	var listen string
 	var reuseTimeout int
+	var handshakeTimeout int
 	var sentCacheSize int
 
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
 	flag.IntVar(&reuseTimeout, "timeout", 30, "reuse timeout")
+	flag.IntVar(&handshakeTimeout, "handshake_timeout", 30, "handshake stage timeout")
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
 	flag.IntVar(&optUploadMaxDelay, "uploadMaxDelay", 0, "upload maximal delay milliseconds")
@@ -247,6 +249,6 @@ func main() {
 	}
 
 	go handleSignal()
-	glbScpServer = NewSCPServer(listen, reuseTimeout)
+	glbScpServer = NewSCPServer(listen, reuseTimeout, handshakeTimeout)
 	Log("server: %v", glbScpServer.Start())
 }
