@@ -125,9 +125,10 @@ func (p *ConnPair) Pump() {
 }
 
 type SCPServer struct {
-	laddr        string
-	reuseTimeout time.Duration
-	idAllocator  *scp.IDAllocator
+	laddr            string
+	reuseTimeout     time.Duration
+	handshakeTimeout time.Duration
+	idAllocator      *scp.IDAllocator
 
 	connPairMutex sync.Mutex
 	connPairs     map[int]*ConnPair
@@ -139,6 +140,10 @@ func (ss *SCPServer) AcquireID() int {
 
 func (ss *SCPServer) ReleaseID(id int) {
 	ss.idAllocator.ReleaseID(id)
+}
+
+func (ss *SCPServer) HandshakeTimeout() time.Duration {
+	return ss.handshakeTimeout
 }
 
 func (ss *SCPServer) QueryByID(id int) *scp.Conn {
@@ -278,11 +283,12 @@ func (ss *SCPServer) Start() error {
 	}
 }
 
-func NewSCPServer(laddr string, reuseTimeout int) *SCPServer {
+func NewSCPServer(laddr string, reuseTimeout int, handshakeTimeout int) *SCPServer {
 	return &SCPServer{
-		laddr:        laddr,
-		reuseTimeout: time.Duration(reuseTimeout) * time.Second,
-		idAllocator:  scp.NewIDAllocator(1),
-		connPairs:    make(map[int]*ConnPair),
+		laddr:            laddr,
+		reuseTimeout:     time.Duration(reuseTimeout) * time.Second,
+		handshakeTimeout: time.Duration(handshakeTimeout) * time.Second,
+		idAllocator:      scp.NewIDAllocator(1),
+		connPairs:        make(map[int]*ConnPair),
 	}
 }
