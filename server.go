@@ -126,10 +126,10 @@ func (p *ConnPair) Pump() {
 }
 
 type SCPServer struct {
-	options      *Options
-	reuseTimeout time.Duration
+	options          *Options
+	reuseTimeout     time.Duration
 	handshakeTimeout time.Duration
-	idAllocator  *scp.IDAllocator
+	idAllocator      *scp.IDAllocator
 
 	connPairMutex sync.Mutex
 	connPairs     map[int]*ConnPair
@@ -279,10 +279,10 @@ func (ss *SCPServer) Start(network, laddr string) error {
 
 func NewSCPServer(options *Options) *SCPServer {
 	return &SCPServer{
-		options:      options,
-		reuseTimeout: time.Duration(options.reuseTimeout) * time.Second,
+		options:          options,
+		reuseTimeout:     time.Duration(options.reuseTimeout) * time.Second,
 		handshakeTimeout: time.Duration(options.handshakeTimeout) * time.Second,
-		idAllocator:  scp.NewIDAllocator(1),
-		connPairs:    make(map[int]*ConnPair),
+		idAllocator:      scp.NewIDAllocator(1),
+		connPairs:        make(map[int]*ConnPair),
 	}
 }

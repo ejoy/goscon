@@ -199,7 +199,7 @@ var glbScpServer *SCPServer
 var glbLocalConnProvider *LocalConnProvider
 
 var (
-	optProtocol = 0
+	optProtocol        = 0
 	optUploadMinPacket int
 	optUploadMaxDelay  int
 )
@@ -361,15 +361,15 @@ func main() {
 	go handleSignal()
 
 	glbScpServer = NewSCPServer(&Options{
-		reuseTimeout:   reuseTimeout,
-        handshakeTimeout: handshakeTimeout,
-		tcpOptions: &tcp,
-		kcpOptions: &kcp,
+		reuseTimeout:     reuseTimeout,
+		handshakeTimeout: handshakeTimeout,
+		tcpOptions:       &tcp,
+		kcpOptions:       &kcp,
 	})
 
 	var wg sync.WaitGroup
 
-	if optProtocol == 0 || optProtocol & TCP != 0 {
+	if optProtocol == 0 || optProtocol&TCP != 0 {
 		wg.Add(1)
 		go func() {
 			Log("tcp options: %v", tcp)
@@ -377,7 +377,7 @@ func main() {
 			wg.Done()
 		}()
 	}
-	if optProtocol & KCP != 0 {
+	if optProtocol&KCP != 0 {
 		wg.Add(1)
 		go func() {
 			Log("kcp options: %v", kcp)

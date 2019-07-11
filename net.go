@@ -34,10 +34,10 @@ type (
 	}
 
 	Options struct {
-		reuseTimeout int
+		reuseTimeout     int
 		handshakeTimeout int
-		tcpOptions    *TcpOptions
-		kcpOptions    *KcpOptions
+		tcpOptions       *TcpOptions
+		kcpOptions       *KcpOptions
 	}
 
 	tcpListener struct {
@@ -54,12 +54,12 @@ type (
 
 	tcpConn struct {
 		*net.TCPConn
-		readTimeout    time.Duration
+		readTimeout time.Duration
 	}
 
 	kcpConn struct {
 		*kcp.UDPSession
-		readTimeout    time.Duration
+		readTimeout time.Duration
 	}
 )
 
