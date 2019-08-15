@@ -421,18 +421,22 @@ func (c *Conn) handshake() error {
 }
 
 func (c *Conn) Handshake() error {
-	var err error
-	done := make(chan struct{})
-	go func() {
-		err = c.handshake()
-		close(done)
-	}()
-	handshake_timeout := c.config.ScpServer.HandshakeTimeout()
-	select {
-	case <-time.After(handshake_timeout):
-		return errors.New("handshake timeout")
-	case <-done:
-		return err
+	if c.config.ScpServer == nil {
+		return c.handshake()
+	} else {
+		var err error
+		done := make(chan struct{})
+		go func() {
+			err = c.handshake()
+			close(done)
+		}()
+		handshake_timeout := c.config.ScpServer.HandshakeTimeout()
+		select {
+		case <-time.After(handshake_timeout):
+			return errors.New("handshake timeout")
+		case <-done:
+			return err
+		}
 	}
 }
 
