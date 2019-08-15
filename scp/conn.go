@@ -430,9 +430,9 @@ func (c *Conn) Handshake() error {
 			err = c.handshake()
 			close(done)
 		}()
-		handshake_timeout := c.config.ScpServer.HandshakeTimeout()
+		handshakeTimeout := c.config.ScpServer.HandshakeTimeout()
 		select {
-		case <-time.After(handshake_timeout):
+		case <-time.After(handshakeTimeout):
 			return errors.New("handshake timeout")
 		case <-done:
 			return err
