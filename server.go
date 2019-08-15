@@ -10,7 +10,9 @@ import (
 	"github.com/ejoy/goscon/scp"
 )
 
-var ReuseTimeout = 300 * time.Second
+var (
+	zeroTime time.Time
+)
 
 type HalfCloseConn interface {
 	net.Conn
@@ -126,10 +128,8 @@ func (p *ConnPair) Pump() {
 }
 
 type SCPServer struct {
-	options          *Options
-	reuseTimeout     time.Duration
-	handshakeTimeout time.Duration
-	idAllocator      *scp.IDAllocator
+	options     *Options
+	idAllocator *scp.IDAllocator
 
 	connPairMutex sync.Mutex
 	connPairs     map[int]*ConnPair
@@ -141,10 +141,6 @@ func (ss *SCPServer) AcquireID() int {
 
 func (ss *SCPServer) ReleaseID(id int) {
 	ss.idAllocator.ReleaseID(id)
-}
-
-func (ss *SCPServer) HandshakeTimeout() time.Duration {
-	return ss.handshakeTimeout
 }
 
 func (ss *SCPServer) QueryByID(id int) *scp.Conn {
@@ -208,7 +204,7 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	defer ss.ReleaseID(id)
 
 	connPair := &ConnPair{}
-	connPair.RemoteConn = NewSCPConn(scon, ss.reuseTimeout)
+	connPair.RemoteConn = NewSCPConn(scon, time.Duration(ss.options.reuseTimeout)*time.Second)
 	// hold conn pair for reuse
 	ss.AddConnPair(id, connPair)
 	defer ss.RemoveConnPair(id)
@@ -227,6 +223,12 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 func (ss *SCPServer) handleClient(conn Conn) {
 	defer Recover()
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
+
+	if ss.options.handshakeTimeout > 0 {
+		scon.SetDeadline(time.Now().Add(time.Duration(ss.options.handshakeTimeout) * time.Second))
+		defer scon.SetDeadline(zeroTime)
+	}
+
 	if err := scon.Handshake(); err != nil {
 		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())
 		conn.Close()
@@ -279,10 +281,8 @@ func (ss *SCPServer) Start(network, laddr string) error {
 
 func NewSCPServer(options *Options) *SCPServer {
 	return &SCPServer{
-		options:          options,
-		reuseTimeout:     time.Duration(options.reuseTimeout) * time.Second,
-		handshakeTimeout: time.Duration(options.handshakeTimeout) * time.Second,
-		idAllocator:      scp.NewIDAllocator(1),
-		connPairs:        make(map[int]*ConnPair),
+		options:     options,
+		idAllocator: scp.NewIDAllocator(1),
+		connPairs:   make(map[int]*ConnPair),
 	}
 }

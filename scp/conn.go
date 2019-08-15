@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/rc4"
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"sync"
@@ -391,7 +390,7 @@ func (c *Conn) serverHandshake() error {
 	return nil
 }
 
-func (c *Conn) handshake() error {
+func (c *Conn) Handshake() error {
 	if c.handshakeComplete {
 		return nil
 	}
@@ -418,22 +417,6 @@ func (c *Conn) handshake() error {
 
 	c.handshakeComplete = true
 	return nil
-}
-
-func (c *Conn) Handshake() error {
-	var err error
-	done := make(chan struct{})
-	go func() {
-		err = c.handshake()
-		close(done)
-	}()
-	handshake_timeout := c.config.ScpServer.HandshakeTimeout()
-	select {
-	case <-time.After(handshake_timeout):
-		return errors.New("handshake timeout")
-	case <-done:
-		return err
-	}
 }
 
 // Write writes data to the connection and cache in sentCache
