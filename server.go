@@ -226,10 +226,14 @@ func (ss *SCPServer) handleClient(conn Conn) {
 
 	if ss.options.handshakeTimeout > 0 {
 		scon.SetDeadline(time.Now().Add(time.Duration(ss.options.handshakeTimeout) * time.Second))
-		defer scon.SetDeadline(zeroTime)
 	}
 
-	if err := scon.Handshake(); err != nil {
+	err := scon.Handshake()
+	if ss.options.handshakeTimeout > 0 {
+		scon.SetDeadline(zeroTime)
+	}
+
+	if err != nil {
 		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())
 		conn.Close()
 		return
