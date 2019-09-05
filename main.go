@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"time"
 	"math/rand"
 	"net"
 	"os"
@@ -19,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"github.com/ejoy/kcp-go"
 
 	"github.com/ejoy/goscon/scp"
 )
@@ -265,7 +268,7 @@ func (flag *KcpOptions) Set(value string) error {
 		option := strings.Split(pair, ":")
 		switch option[0] {
 		case "mtu":
-			data, err = strconv.Atoi(option[1])
+			data, err := strconv.Atoi(option[1])
 			if err != nil {
 				return err
 			}
@@ -349,16 +352,16 @@ func (flag *KcpOptions) Set(value string) error {
 
 func main() {
 	// deal with arguments
-	var tcp TcpOptions
-	var kcp KcpOptions
+	var tcpOpt TcpOptions
+	var kcpOpt KcpOptions
 	var config string
 	var listen string
 	var reuseTimeout int
 	var handshakeTimeout int
 	var sentCacheSize int
 
-	flag.Var(&tcp, "tcp", "tcp options, use default by setting empty literal")
-	flag.Var(&kcp, "kcp", "kcp options, use default by setting empty literal")
+	flag.Var(&tcpOpt, "tcp", "tcp options, use default by setting empty literal")
+	flag.Var(&kcpOpt, "kcp", "kcp options, use default by setting empty literal")
 	flag.StringVar(&config, "config", "./settings.conf", "backend servers config file")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
@@ -391,8 +394,8 @@ func main() {
 	glbScpServer = NewSCPServer(&Options{
 		reuseTimeout:     reuseTimeout,
 		handshakeTimeout: handshakeTimeout,
-		tcpOptions:       &tcp,
-		kcpOptions:       &kcp,
+		tcpOptions:       &tcpOpt,
+		kcpOptions:       &kcpOpt,
 	})
 
 	var wg sync.WaitGroup
@@ -400,21 +403,28 @@ func main() {
 	if optProtocol == 0 || optProtocol&TCP != 0 {
 		wg.Add(1)
 		go func() {
-			Log("tcp options: %v", tcp)
+			Log("tcp options: %v", tcpOpt)
 			glbScpServer.Start("tcp", listen)
 			wg.Done()
 		}()
 	}
 	if optProtocol&KCP != 0 {
-		wg.Add(kcp.reuseport)
-		for i := 0; i < kcp.reuseport; i++ {
+		wg.Add(kcpOpt.reuseport)
+		for i := 0; i < kcpOpt.reuseport; i++ {
 			go func() {
-				Log("kcp options: %v, %v", kcp, listen)
+				Log("kcp options: %v, %v", kcpOpt, listen)
 				glbScpServer.Start("kcp", listen)
 				wg.Done()
 			}()
 		}
+		go func() {
+			snmp := kcp.DefaultSnmp
+			for {
+				Log("%+v", snmp.Copy())
+				snmp.Reset()
+				time.Sleep(1 * time.Minute)
+			}
+		}()
 	}
-
 	wg.Wait()
 }
