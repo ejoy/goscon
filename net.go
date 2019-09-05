@@ -6,9 +6,9 @@ import (
 	"net"
 	"time"
 
+	kcp "github.com/ejoy/kcp-go"
 	reuse "github.com/libp2p/go-reuseport"
 	"github.com/pkg/errors"
-	kcp "github.com/ejoy/kcp-go"
 )
 
 type (
@@ -26,6 +26,7 @@ type (
 	}
 
 	KcpOptions struct {
+		mtu         int
 		readTimeout int
 		sndWnd      int
 		rcvWnd      int
@@ -93,7 +94,7 @@ func (conn kcpPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 	return n, err
 }
 
-func kcpListenWithOptions(laddr string, block kcp.BlockCrypt, dataShards, parityShards int) (*kcp.Listener, error) {
+func kcpListenWithOptions(laddr string, block kcp.BlockCrypt, mtu, dataShards, parityShards int) (*kcp.Listener, error) {
 	conn, err := reuse.ListenPacket("udp", laddr)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -104,7 +105,7 @@ func kcpListenWithOptions(laddr string, block kcp.BlockCrypt, dataShards, parity
 	}
 	kcpconn := kcpPacketConn{conn, fecHeaderSize}
 
-	return kcp.ServeConn(block, dataShards, parityShards, kcpconn)
+	return kcp.ServeConn(block, mtu, dataShards, parityShards, kcpconn)
 }
 
 func ListenWithOptions(network, laddr string, options *Options) (Listener, error) {
@@ -125,7 +126,7 @@ func ListenWithOptions(network, laddr string, options *Options) (Listener, error
 	// kcp
 	kcpOptions := options.kcpOptions
 
-	ln, err := kcpListenWithOptions(laddr, nil, kcpOptions.fecData, kcpOptions.fecParity)
+	ln, err := kcpListenWithOptions(laddr, nil, kcpOptions.mtu, kcpOptions.fecData, kcpOptions.fecParity)
 	if err != nil {
 		return nil, err
 	}

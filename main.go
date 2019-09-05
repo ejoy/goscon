@@ -248,6 +248,7 @@ func (flag *KcpOptions) String() string {
 func (flag *KcpOptions) Set(value string) error {
 	optProtocol |= KCP
 	// default vals
+	flag.mtu = 1400
 	flag.readTimeout = 60
 	flag.sndWnd = 1024
 	flag.rcvWnd = 1024
@@ -263,6 +264,12 @@ func (flag *KcpOptions) Set(value string) error {
 	for _, pair := range strings.Split(value, ",") {
 		option := strings.Split(pair, ":")
 		switch option[0] {
+		case "mtu":
+			data, err = strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.mtu = data
 		case "read_timeout":
 			data, err := strconv.Atoi(option[1])
 			if err != nil {

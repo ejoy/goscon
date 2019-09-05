@@ -25,6 +25,7 @@ type ConnPair struct {
 	RemoteConn *SCPConn     // client <-> scp server
 }
 
+// RemoteConn(client) -> LocalConn(server)
 func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
 	addr := src.RemoteAddr()
 	var err error
@@ -56,6 +57,7 @@ func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) err
 	return err
 }
 
+// src:LocalConn(server) -> dst:RemoteConn(client)
 func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
 	addr := dst.RemoteAddr()
 	var err error
