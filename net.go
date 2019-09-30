@@ -32,6 +32,8 @@ type (
 		readBuffer  int
 		writeBuffer int
 		reuseport   int
+		snmpLog		string
+		snmpPeriod 	int
 	}
 
 	Options struct {
