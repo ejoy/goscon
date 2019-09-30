@@ -116,12 +116,13 @@ CODE 是一个10进制三位数, 表示连接是否恢复:
 
 kcp 的配置分为两部分，通过配置文件传入和通过命令行参数传入。配置文件传入的主要是以下几项，参考 settings.conf 中配置项。**注意：配置文件中的这几项不能省略，如果省略了，默认就是 0** 。 热更新只会影响新建的 kcp 会话。
 
-* rcvWnd            kcp连接的接收窗口，默认为 2048
-* sndWnd            kcp连接的发送窗口，默认为 2048
+* mtu               最大传输单元
+* rcvWnd            kcp连接的接收窗口
+* sndWnd            kcp连接的发送窗口
 * nodelay           是否启用 nodelay 模式
-* interval          kcp 调用 update 的时间间隔，单位是毫秒，默认 10ms
-* resend            快速重换模式，默认为 2，代表 2 次 ACK 跨越直接重传
-* nc                是否关闭流控，默认为 1，表示关闭
+* interval          kcp 调用 update 的时间间隔，单位是毫秒
+* resend            快速重换模式，比如 2 表示：2 次 ACK 跨越直接重传
+* nc                是否关闭拥塞控制，0-开启，1-关闭
 
 命令行参数传入的主要是以下几项：
 
@@ -131,3 +132,5 @@ kcp 的配置分为两部分，通过配置文件传入和通过命令行参数�
 * reuseport         利用端口复用的特性，同时开启多个 Goroutine 监听端口，默认为 8
 * fec_data          fec 参数
 * fec_parity        fec 参数
+* snmplog           记录 snmp 日志的目录，如：./snmp-20060102.log，需要保证目录存在。如果传空，则不打印。
+* snmpperiod        记录 snmp 日志的间隔，默认为 60 秒

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/ejoy/goscon/generic"
 	"github.com/ejoy/goscon/scp"
 )
 
@@ -270,6 +271,8 @@ func (flag *KcpOptions) Set(value string) error {
 	flag.readBuffer = 4 * 1024 * 1024
 	flag.writeBuffer = 4 * 1024 * 1024
 	flag.reuseport = 8
+	flag.snmpLog = "./snmp-20060102.log"
+	flag.snmpPeriod = 60	// seconds
 	for _, pair := range strings.Split(value, ",") {
 		option := strings.Split(pair, ":")
 		switch option[0] {
@@ -309,6 +312,14 @@ func (flag *KcpOptions) Set(value string) error {
 				return err
 			}
 			flag.reuseport = reuseport
+		case "snmplog":
+			flag.snmpLog = option[1]
+		case "snmpperiod":
+			snmpPeriod, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.snmpPeriod = snmpPeriod
 		}
 	}
 	return nil
@@ -380,6 +391,9 @@ func main() {
 				glbScpServer.Start("kcp", listen)
 				wg.Done()
 			}()
+		}
+		if kcpOpt.snmpLog != "" {
+			go generic.SnmpLogger(kcpOpt.snmpLog, kcpOpt.snmpPeriod)
 		}
 	}
 	wg.Wait()
