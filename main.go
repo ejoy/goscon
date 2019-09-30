@@ -39,8 +39,19 @@ type Host struct {
 	addr *net.TCPAddr
 }
 
+type KcpConfig struct {
+	Mtu      int `json:"mtu"`
+	Interval int `json:"interval"`
+	SndWnd   int `json:"snd_wnd"`
+	RcvWnd   int `json:"rcv_wnd"`
+	Nodelay  int `json:"nodelay"`
+	Resend   int `json:"resend"`
+	Nc       int `json:"nc"`
+}
+
 type Config struct {
-	Hosts []Host `json:"hosts"`
+	Hosts []Host    `json:"hosts"`
+	Kcp   KcpConfig `json:"kcp"`
 }
 
 type LocalConnWrapper interface {
@@ -51,6 +62,8 @@ type LocalConnProvider struct {
 	sync.Mutex
 	hosts  []Host
 	weight int
+
+	kcp KcpConfig
 
 	wrapper LocalConnWrapper
 
@@ -117,7 +130,7 @@ func (tp *LocalConnProvider) CreateLocalConn(remoteConn *scp.Conn) (*net.TCPConn
 	return newConn, nil
 }
 
-func (tp *LocalConnProvider) reset(hosts []Host) error {
+func (tp *LocalConnProvider) reset(hosts []Host, kcp KcpConfig) error {
 	var weight int
 	for i := range hosts {
 		host := &hosts[i]
@@ -136,7 +149,10 @@ func (tp *LocalConnProvider) reset(hosts []Host) error {
 	tp.Lock()
 	tp.hosts = hosts
 	tp.weight = weight
+	tp.kcp = kcp
 	tp.Unlock()
+
+	Log("%+v", kcp)
 	return nil
 }
 
@@ -154,7 +170,7 @@ func (tp *LocalConnProvider) Reload() error {
 		return err
 	}
 
-	return tp.reset(config.Hosts)
+	return tp.reset(config.Hosts, config.Kcp)
 }
 
 const SIG_RELOAD = syscall.Signal(34)
@@ -249,14 +265,11 @@ func (flag *KcpOptions) Set(value string) error {
 	optProtocol |= KCP
 	// default vals
 	flag.readTimeout = 60
-	flag.sndWnd = 1024
-	flag.rcvWnd = 1024
-	flag.nodelay = 1
-	flag.interval = 10
-	flag.resend = 2
-	flag.nc = 1
 	flag.fecData = 0
 	flag.fecParity = 0
+	flag.readBuffer = 4 * 1024 * 1024
+	flag.writeBuffer = 4 * 1024 * 1024
+	flag.reuseport = 8
 	for _, pair := range strings.Split(value, ",") {
 		option := strings.Split(pair, ":")
 		switch option[0] {
@@ -266,42 +279,6 @@ func (flag *KcpOptions) Set(value string) error {
 				return err
 			}
 			flag.readTimeout = data
-		case "snd_wnd":
-			data, err := strconv.Atoi(option[1])
-			if err != nil {
-				return err
-			}
-			flag.sndWnd = data
-		case "rcv_wnd":
-			data, err := strconv.Atoi(option[1])
-			if err != nil {
-				return err
-			}
-			flag.rcvWnd = data
-		case "nodelay":
-			data, err := strconv.Atoi(option[1])
-			if err != nil {
-				return err
-			}
-			flag.nodelay = data
-		case "interval":
-			data, err := strconv.Atoi(option[1])
-			if err != nil {
-				return err
-			}
-			flag.interval = data
-		case "resend":
-			data, err := strconv.Atoi(option[1])
-			if err != nil {
-				return err
-			}
-			flag.resend = data
-		case "nc":
-			data, err := strconv.Atoi(option[1])
-			if err != nil {
-				return err
-			}
-			flag.nc = data
 		case "fec_data":
 			data, err := strconv.Atoi(option[1])
 			if err != nil {
@@ -314,6 +291,24 @@ func (flag *KcpOptions) Set(value string) error {
 				return err
 			}
 			flag.fecParity = parity
+		case "read_buffer":
+			rbuffer, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.readBuffer = rbuffer
+		case "write_buffer":
+			wbuffer, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.writeBuffer = wbuffer
+		case "reuseport":
+			reuseport, err := strconv.Atoi(option[1])
+			if err != nil {
+				return err
+			}
+			flag.reuseport = reuseport
 		}
 	}
 	return nil
@@ -321,16 +316,16 @@ func (flag *KcpOptions) Set(value string) error {
 
 func main() {
 	// deal with arguments
-	var tcp TcpOptions
-	var kcp KcpOptions
+	var tcpOpt TcpOptions
+	var kcpOpt KcpOptions
 	var config string
 	var listen string
 	var reuseTimeout int
 	var handshakeTimeout int
 	var sentCacheSize int
 
-	flag.Var(&tcp, "tcp", "tcp options, use default by setting empty literal")
-	flag.Var(&kcp, "kcp", "kcp options, use default by setting empty literal")
+	flag.Var(&tcpOpt, "tcp", "tcp options, use default by setting empty literal")
+	flag.Var(&kcpOpt, "kcp", "kcp options, use default by setting empty literal")
 	flag.StringVar(&config, "config", "./settings.conf", "backend servers config file")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
@@ -363,8 +358,8 @@ func main() {
 	glbScpServer = NewSCPServer(&Options{
 		reuseTimeout:     reuseTimeout,
 		handshakeTimeout: handshakeTimeout,
-		tcpOptions:       &tcp,
-		kcpOptions:       &kcp,
+		tcpOptions:       &tcpOpt,
+		kcpOptions:       &kcpOpt,
 	})
 
 	var wg sync.WaitGroup
@@ -372,19 +367,20 @@ func main() {
 	if optProtocol == 0 || optProtocol&TCP != 0 {
 		wg.Add(1)
 		go func() {
-			Log("tcp options: %v", tcp)
+			Log("tcp options: %v", tcpOpt)
 			glbScpServer.Start("tcp", listen)
 			wg.Done()
 		}()
 	}
 	if optProtocol&KCP != 0 {
-		wg.Add(1)
-		go func() {
-			Log("kcp options: %v", kcp)
-			glbScpServer.Start("kcp", listen)
-			wg.Done()
-		}()
+		wg.Add(kcpOpt.reuseport)
+		for i := 0; i < kcpOpt.reuseport; i++ {
+			go func() {
+				Log("kcp options: %v, %v", kcpOpt, listen)
+				glbScpServer.Start("kcp", listen)
+				wg.Done()
+			}()
+		}
 	}
-
 	wg.Wait()
 }
