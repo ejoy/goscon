@@ -25,12 +25,15 @@ type ConnPair struct {
 	RemoteConn *SCPConn     // client <-> scp server
 }
 
+// RemoteConn(client) -> LocalConn(server)
 func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
+	addr := src.RemoteAddr()
 	var err error
 	var written, packets int
 	buf := make([]byte, scp.NetBufferSize)
 	for {
 		nr, er := src.Read(buf)
+		Debug("<%s> recv packet size %d", addr, nr)
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if nw > 0 {
@@ -54,7 +57,9 @@ func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) err
 	return err
 }
 
+// src:LocalConn(server) -> dst:RemoteConn(client)
 func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
+	addr := dst.RemoteAddr()
 	var err error
 	var written, packets int
 	buf := make([]byte, scp.NetBufferSize)
@@ -73,6 +78,7 @@ func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error
 
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
+			Debug("<%s> send packet size %d", addr, nw)
 			if nw > 0 {
 				packets++
 				written += nw
@@ -98,7 +104,7 @@ func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error
 }
 
 func (p *ConnPair) Reuse(scon *scp.Conn) {
-	Info("<%d> reuse, change remote from [%s><%s] to [%s><%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), scon.LocalAddr(), scon.RemoteAddr())
+	Info("<%d> reuse, change remote from [%s><%s] to [%s><%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), scon.RemoteAddr(), scon.LocalAddr())
 	p.RemoteConn.SetConn(scon)
 }
 

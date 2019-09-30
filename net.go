@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/binary"
+	"fmt"
 	"net"
 	"time"
 
-	kcp "github.com/xtaci/kcp-go"
+	"github.com/libp2p/go-reuseport"
+	"github.com/pkg/errors"
+	"github.com/xtaci/kcp-go"
 )
 
 type (
@@ -23,14 +27,11 @@ type (
 
 	KcpOptions struct {
 		readTimeout int
-		sndWnd      int
-		rcvWnd      int
-		nodelay     int
-		interval    int
-		resend      int
-		nc          int // flow control
 		fecData     int
 		fecParity   int
+		readBuffer  int
+		writeBuffer int
+		reuseport   int
 	}
 
 	Options struct {
@@ -61,7 +62,44 @@ type (
 		*kcp.UDPSession
 		readTimeout time.Duration
 	}
+
+	kcpPacketConn struct {
+		net.PacketConn
+		fecHeaderSize int
+	}
 )
+
+func (conn kcpPacketConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	n, addr, err = conn.PacketConn.ReadFrom(p)
+	if n < 4 {
+		Error("receive invalid data from <%s> size %d", addr, n)
+	} else {
+		conv := binary.LittleEndian.Uint32(p[conn.fecHeaderSize:])
+		Debug("<kcp:%s> conv %d recv %d", addr, conv, n)
+	}
+	return n, addr, err
+}
+
+func (conn kcpPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	n, err = conn.PacketConn.WriteTo(p, addr)
+	conv := binary.LittleEndian.Uint32(p[conn.fecHeaderSize:])
+	Debug("<kcp:%s> conv %d send %d", addr, conv, n)
+	return n, err
+}
+
+func kcpListenWithOptions(laddr string, block kcp.BlockCrypt, dataShards, parityShards int) (*kcp.Listener, error) {
+	conn, err := reuseport.ListenPacket("udp", laddr)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	fecHeaderSize := 0
+	if dataShards != 0 && parityShards != 0 {
+		fecHeaderSize = 6
+	}
+	kcpconn := kcpPacketConn{conn, fecHeaderSize}
+
+	return kcp.ServeConn(block, dataShards, parityShards, kcpconn)
+}
 
 func ListenWithOptions(network, laddr string, options *Options) (Listener, error) {
 	if network == "tcp" {
@@ -72,6 +110,7 @@ func ListenWithOptions(network, laddr string, options *Options) (Listener, error
 
 		ln, err := net.ListenTCP("tcp", tcpAddr)
 		if err != nil {
+			fmt.Printf("%v", err)
 			return nil, err
 		}
 		return tcpListener{ln: ln, options: options.tcpOptions}, nil
@@ -79,7 +118,14 @@ func ListenWithOptions(network, laddr string, options *Options) (Listener, error
 
 	// kcp
 	kcpOptions := options.kcpOptions
-	ln, err := kcp.ListenWithOptions(laddr, nil, kcpOptions.fecData, kcpOptions.fecParity)
+
+	ln, err := kcpListenWithOptions(laddr, nil, kcpOptions.fecData, kcpOptions.fecParity)
+	if err != nil {
+		return nil, err
+	}
+	ln.SetReadBuffer(kcpOptions.readBuffer)
+	ln.SetWriteBuffer(kcpOptions.writeBuffer)
+	ln.SetDSCP(46)
 	return kcpListener{ln: ln, options: kcpOptions}, err
 }
 
@@ -92,6 +138,8 @@ func (t tcpListener) Accept() (Conn, error) {
 func (k kcpListener) Accept() (Conn, error) {
 	conn, err := k.ln.AcceptKCP()
 	timeout := time.Duration(k.options.readTimeout) * time.Second
+	conn.SetStreamMode(true)
+	Debug("accept new connection from: <kcp:%s> conv %d", conn.RemoteAddr(), conn.GetConv())
 	return &kcpConn{conn, timeout}, err
 }
 
@@ -116,7 +164,8 @@ func (k *kcpConn) Read(b []byte) (n int, err error) {
 }
 
 func (k *kcpConn) SetOptions(options *Options) {
-	kcpOptions := options.kcpOptions
-	k.SetWindowSize(kcpOptions.sndWnd, kcpOptions.rcvWnd)
-	k.SetNoDelay(kcpOptions.nodelay, kcpOptions.interval, kcpOptions.resend, kcpOptions.nc)
+	kcp := glbLocalConnProvider.kcp
+	k.SetMtu(kcp.Mtu)
+	k.SetWindowSize(kcp.SndWnd, kcp.RcvWnd)
+	k.SetNoDelay(kcp.Nodelay, kcp.Interval, kcp.Resend, kcp.Nc)
 }
