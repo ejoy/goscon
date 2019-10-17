@@ -50,6 +50,7 @@ func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) err
 			break
 		}
 	}
+	Debug("<%s> downloadUntilClose return: %s", err)
 	src.CloseRead()
 	dst.CloseWrite()
 	ch <- written
@@ -96,6 +97,7 @@ func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error
 			break
 		}
 	}
+	Debug("<%s> uploadUntilClose return: %s", err)
 	src.CloseRead()
 	dst.CloseWrite()
 	ch <- written
@@ -285,6 +287,7 @@ func (ss *SCPServer) Start(network, laddr string) error {
 			return err
 		}
 		tempDelay = 0
+		Debug("<%s> new connection", conn.RemoteAddr())
 		go ss.handleClient(conn)
 	}
 }
