@@ -1,32 +1,35 @@
 # gosconn
 
-断线重连服务器端代理
-如果需要用到端口复用的特性，要求 go version >= 1.11。
+断线重连服务器端代理。
 
-## 用法
-
+```
 client <--> goscon <---> server
+```
 
 client和goscon之间使用断线重连协议，goscon把客户端的请求内容，转发到server。
 
 编译时开启`sproto`扩展，可以新建连接后自动给后端发送一条`sproto`消息，宣布客户端的IP地址信息。
 
-启动tcp网关：
+## build & run
 
+* deps: go v1.13+
+
+```bash
+go build -vendor=mod
 ```
-./goscon -listen="0.0.0.0:1234" -config="/path/to/conf"
+
+启动tcp网关：
+```bash
 ./goscon -listen="0.0.0.0:1234" -config="/path/to/conf" -tcp=""
 ```
 
 启动kcp网关:
-
-```
+```bash
 ./goscon -listen="0.0.0.0:1234" -config="/path/to/conf" -kcp="fec_data:0,fec_parity:0"
 ```
 
 同时启动：
-
-```
+```bash
 ./goscon -listen="0.0.0.0:1234" -config="/path/to/conf" -tcp="" -kcp="fec_data:0,fec_parity:0"
 ```
 

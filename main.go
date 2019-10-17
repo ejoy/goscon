@@ -272,7 +272,7 @@ func (flag *KcpOptions) Set(value string) error {
 	flag.writeBuffer = 4 * 1024 * 1024
 	flag.reuseport = 8
 	flag.snmpLog = "./snmp-20060102.log"
-	flag.snmpPeriod = 60	// seconds
+	flag.snmpPeriod = 60 // seconds
 	for _, pair := range strings.Split(value, ",") {
 		option := strings.Split(pair, ":")
 		switch option[0] {
@@ -340,7 +340,7 @@ func main() {
 	flag.StringVar(&config, "config", "./settings.conf", "backend servers config file")
 	flag.StringVar(&listen, "listen", "0.0.0.0:1248", "local listen port(0.0.0.0:1248)")
 	flag.IntVar(&logLevel, "log", 2, "larger value for detail log")
-	flag.IntVar(&reuseTimeout, "reuseTimeout", 30, "reuse timeout")
+	flag.IntVar(&reuseTimeout, "reuseTimeout", 30, "reuse stage timeout")
 	flag.IntVar(&handshakeTimeout, "handshakeTimeout", 30, "handshake stage timeout")
 	flag.IntVar(&sentCacheSize, "sbuf", 65536, "sent cache size")
 	flag.IntVar(&optUploadMinPacket, "uploadMinPacket", 0, "upload minimal packet")
