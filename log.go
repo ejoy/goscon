@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"log/syslog"
 	"runtime"
 	"time"
@@ -26,13 +27,17 @@ func _gen_logstr(format string, a ...interface{}) string {
 	return log_last_tstr + fmt.Sprintf(format, a...)
 }
 
-func init() {
-	syslog_w, _ = syslog.New(syslog.LOG_INFO, "goscon")
-	log_last_tsec = 0
-}
-
 func _print(s string) {
 	fmt.Println(s)
+}
+
+func init() {
+	_syslog, err := syslog.New(syslog.LOG_INFO, "goscon")
+	if err != nil {
+		log.Fatal(err)
+	}
+	syslog_w = _syslog
+	log_last_tsec = 0
 }
 
 func Debug(format string, a ...interface{}) {
@@ -62,7 +67,7 @@ func Error(format string, a ...interface{}) {
 func Panic(format string, a ...interface{}) {
 	s := _gen_logstr(format, a ...)
 	_print(s)
-	syslog_w.Crit(s)	
+	syslog_w.Crit(s)
 	panic("!!")
 }
 
