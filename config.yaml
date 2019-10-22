@@ -24,9 +24,5 @@ kcp_option:
   opt_rcvwnd: 2048
 hosts:
   - name: test1
-    addr: 127.0.0.1:1249
+    addr: 127.0.0.1:11248
     weigh: 100
-  - name: test2
-    addr: 127.0.0.1:1250
-    weigh: 80
-  - addr: 127.0.0.1:1251

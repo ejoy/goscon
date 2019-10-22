@@ -17,7 +17,7 @@ func (conn tcpConn) Read(b []byte) (int, error) {
 	if conn.readTimeout > 0 {
 		conn.SetReadDeadline(time.Now().Add(conn.readTimeout))
 	}
-	return conn.Read(b)
+	return conn.TCPConn.Read(b)
 }
 
 // TCPListener .
@@ -33,7 +33,7 @@ func (l *TCPListener) Accept() (conn net.Conn, err error) {
 	}
 
 	if glog.V(1) {
-		glog.Infof("accept new tcp connection: addr=%s", conn.RemoteAddr())
+		glog.Infof("accept new tcp connection: addr=%s", c.RemoteAddr())
 	}
 
 	keepalive := viper.GetBool("tcp_option.keepalive")
