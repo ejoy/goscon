@@ -35,7 +35,7 @@ const sigReload = syscall.Signal(34)
 const sigStatus = syscall.Signal(35)
 
 func status() {
-	Log("status:\n\t"+
+	glog.Infof("status:\n\t"+
 		"procs:%d/%d\n\t"+
 		"goroutines:%d\n\t"+
 		"actives:%d",

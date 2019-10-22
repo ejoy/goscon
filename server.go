@@ -25,7 +25,9 @@ func downloadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 	buf := make([]byte, scp.NetBufferSize)
 	for {
 		nr, er := src.Read(buf)
-		Debug("<%s> recv packet size %d", addr, nr)
+		if glog.V(2) {
+			glog.Infof("recv packet from client: add=%s, sz=%d", addr, nr)
+		}
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if nw > 0 {
@@ -42,7 +44,10 @@ func downloadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 			break
 		}
 	}
-	Debug("<%s> downloadUntilClose return: %s", err)
+
+	if glog.V(1) {
+		glog.Infof("downloadUntilClose return: err=%v", err)
+	}
 
 	if halfConn, ok := src.(closeReader); ok {
 		halfConn.CloseRead()
@@ -82,7 +87,9 @@ func uploadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
-			Debug("<%s> send packet size %d", addr, nw)
+			if glog.V(2) {
+				glog.Infof("send packet to client: addr=%s, sz=%d", addr, nw)
+			}
 			if nw > 0 {
 				packets++
 				written += nw
@@ -100,7 +107,11 @@ func uploadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 			break
 		}
 	}
-	Debug("<%s> uploadUntilClose return: %s", err)
+
+	if glog.V(1) {
+		glog.Infof("uploadUntilClose return: err=%v", err)
+	}
+
 	if halfConn, ok := src.(closeReader); ok {
 		halfConn.CloseRead()
 	} else {
@@ -119,12 +130,12 @@ func uploadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 }
 
 func (p *ConnPair) Reuse(scon *scp.Conn) {
-	Info("<%d> reuse, change remote from [%s><%s] to [%s><%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), scon.RemoteAddr(), scon.LocalAddr())
+	glog.Infof("connection pair reuse: id=%d, old_remote=%s, new_remote=%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), scon.RemoteAddr())
 	p.RemoteConn.SetConn(scon)
 }
 
 func (p *ConnPair) Pump() {
-	Info("<%d> new pair [%s><%s] [%s><%s]", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr())
+	glog.Infof("connection pair new: id=%d, remote=%s, local=%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.LocalConn.RemoteAddr())
 	downloadCh := make(chan int)
 	uploadCh := make(chan int)
 
@@ -133,19 +144,10 @@ func (p *ConnPair) Pump() {
 
 	dlData := <-downloadCh
 	dlPackets := <-downloadCh
-	dlSize := 0
-	if dlData > 0 {
-		dlSize = dlData / dlPackets
-	}
 	ulData := <-uploadCh
 	ulPackets := <-uploadCh
-	ulSize := 0
-	if ulData > 0 {
-		ulSize = ulData / ulPackets
-	}
-	Info("<%d> remove pair [%s><%s] [%s><%s], download:(%d:%d:%d), upload:(%d:%d:%d)", p.RemoteConn.ID(),
-		p.RemoteConn.RemoteAddr(), p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr(),
-		dlData, dlPackets, dlSize, ulData, ulPackets, ulSize)
+	glog.Infof("connection pair remove: id=%d, remote=%s, local=%s, down_bytes=%d, down_packets=%d), up_bytes=%d, up_packets=%d", p.RemoteConn.ID(),
+		p.RemoteConn.RemoteAddr(), p.LocalConn.RemoteAddr(), dlData, dlPackets, ulData, ulPackets)
 }
 
 type SCPServer struct {
@@ -198,7 +200,8 @@ func (ss *SCPServer) AddConnPair(id int, pair *ConnPair) {
 	ss.connPairMutex.Lock()
 	defer ss.connPairMutex.Unlock()
 	if _, ok := ss.connPairs[id]; ok {
-		Panic("ConnPair conflict: id<%d>", id)
+		glog.Errorf("connection pair id conflict: id=%d", id)
+		panic(id)
 	}
 	ss.connPairs[id] = pair
 }
@@ -247,7 +250,12 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 }
 
 func (ss *SCPServer) handleClient(conn net.Conn) {
-	defer Recover()
+	defer func() {
+		if err := recover(); err != nil {
+			glog.Errorf("goroutine failed:%v", err)
+			glog.Errorf("stacks: %s", stacks(false))
+		}
+	}()
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 
 	handshakeTimeout := configItemTime("scp.handshake_timeout")
@@ -260,7 +268,7 @@ func (ss *SCPServer) handleClient(conn net.Conn) {
 	}
 
 	if err != nil {
-		Error("handshake error [%s]: %s", conn.RemoteAddr().String(), err.Error())
+		glog.Errorf("scp handshake faield: remote=%s, err=%s", conn.RemoteAddr().String(), err.Error())
 		conn.Close()
 		return
 	}
