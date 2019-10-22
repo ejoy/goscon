@@ -1,0 +1,32 @@
+tcp: 0.0.0.0:1248
+kcp: 0.0.0.0:1248
+scp:
+  handshake_timeout: 30
+  reuse_time: 30
+  reuse_buffer: 65536
+tcp_option:
+  read_timeout: 0
+  keepalive: true
+  keepalive_interval: 60
+kcp_option:
+  reuseport: 0
+  read_timeout: 60
+  fec_data_shards: 0
+  fec_parity_shards: 0
+  read_buffer: 4194304
+  write_buffer: 4194304
+  opt_mtu: 1400
+  opt_nodelay: 1
+  opt_interval: 10 # ms
+  opt_resend: 2
+  opt_nc: 1
+  opt_sndwnd: 2048
+  opt_rcvwnd: 2048
+hosts:
+  - name: test1
+    addr: 127.0.0.1:1249
+    weigh: 100
+  - name: test2
+    addr: 127.0.0.1:1250
+    weigh: 80
+  - addr: 127.0.0.1:1251
