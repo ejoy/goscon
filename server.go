@@ -130,12 +130,13 @@ func uploadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 }
 
 func (p *ConnPair) Reuse(scon *scp.Conn) {
-	glog.Infof("connection pair reuse: id=%d, old_remote=%s, new_remote=%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), scon.RemoteAddr())
+	glog.Infof("connection pair reuse: id=%d, old_client=%s, new_client=%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), scon.RemoteAddr())
 	p.RemoteConn.SetConn(scon)
 }
 
 func (p *ConnPair) Pump() {
-	glog.Infof("connection pair new: id=%d, remote=%s, local=%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), p.LocalConn.RemoteAddr())
+	glog.Infof("connection pair new: id=%d, client=%s->%s, server=%s->%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(),
+		p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr())
 	downloadCh := make(chan int)
 	uploadCh := make(chan int)
 
@@ -146,8 +147,8 @@ func (p *ConnPair) Pump() {
 	dlPackets := <-downloadCh
 	ulData := <-uploadCh
 	ulPackets := <-uploadCh
-	glog.Infof("connection pair remove: id=%d, remote=%s, local=%s, down_bytes=%d, down_packets=%d), up_bytes=%d, up_packets=%d", p.RemoteConn.ID(),
-		p.RemoteConn.RemoteAddr(), p.LocalConn.RemoteAddr(), dlData, dlPackets, ulData, ulPackets)
+	glog.Infof("connection pair remove: id=%d, client=%s, server=%s, down_bytes=%d, down_packets=%d), up_bytes=%d, up_packets=%d", p.RemoteConn.ID(),
+		p.RemoteConn.RemoteAddr(), p.LocalConn.LocalAddr(), dlData, dlPackets, ulData, ulPackets)
 }
 
 type SCPServer struct {
@@ -241,7 +242,7 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	localConn, err := upstream.NewConn(scon)
 	if err != nil {
 		scon.Close()
-		glog.Errorf("upstream new conn failed: remote=%s, err=%s", scon.RemoteAddr().String(), err.Error())
+		glog.Errorf("upstream new conn failed: client=%s, err=%s", scon.RemoteAddr().String(), err.Error())
 		return
 	}
 
@@ -268,7 +269,7 @@ func (ss *SCPServer) handleClient(conn net.Conn) {
 	}
 
 	if err != nil {
-		glog.Errorf("scp handshake faield: remote=%s, err=%s", conn.RemoteAddr().String(), err.Error())
+		glog.Errorf("scp handshake faield: client=%s, err=%s", conn.RemoteAddr().String(), err.Error())
 		conn.Close()
 		return
 	}
@@ -307,7 +308,7 @@ func (ss *SCPServer) Serve(l net.Listener) error {
 		}
 		tempDelay = 0
 		if glog.V(1) {
-			glog.Infof("accept new connection: local=%s, remote=%s", addr, conn.RemoteAddr().String())
+			glog.Infof("accept new connection: listen=%s, client=%s", addr, conn.RemoteAddr().String())
 		}
 		go ss.handleClient(conn)
 	}

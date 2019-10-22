@@ -22,11 +22,11 @@ client <--> goscon <---> server
 
 在`goscon`维持连接期间，`client`可以使用断线重连协议，无缝重用之前的连接。
 
-若`scp.reuse_time`秒没有被重用，`goscon`对断开跟`server`的连接。
+若`scp.reuse_time`秒没有被重用，`goscon`断开跟`server`的连接。
 
-编译时开启`sproto`扩展，可以新建连接后自动给后端发送一条`sproto`消息，宣布客户端的IP地址信息。
+编译时开启`sproto`扩展，新建连接后自动给后端发送一条`sproto`消息，宣布客户端的原始`ip`地址信息。
 
-## build & run
+## build & run & test
 
 * deps: go v1.13+
 
@@ -36,9 +36,36 @@ go build -vendor=mod
 ```
 
 * config
+
 配置选项含义，请参考[config.go](https://github.com/ejoy/goscon/blob/master/config.go)
 
 * run
 ```bash
 ./goscon  -alsologtostderr -v 10 -config config.yaml
+```
+
+* test
+
+- 编译测试程序
+
+```bash
+go build -mod=vendor ./examples/client
+```
+
+- 启动服务端
+
+```bash
+./client.exe -startEchoServer :11248
+```
+
+- 测试 tcp
+
+```
+./client.exe
+```
+
+- 测试 kcp
+
+```
+./client.exe kcp
 ```
