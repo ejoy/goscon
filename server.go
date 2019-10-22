@@ -8,25 +8,17 @@ import (
 	"io"
 
 	"github.com/ejoy/goscon/scp"
+	"github.com/ejoy/goscon/upstream"
+	"github.com/golang/glog"
 )
-
-var (
-	zeroTime time.Time
-)
-
-type HalfCloseConn interface {
-	net.Conn
-	CloseRead() error
-	CloseWrite() error
-}
 
 type ConnPair struct {
-	LocalConn  *net.TCPConn // scp server <-> local server
-	RemoteConn *SCPConn     // client <-> scp server
+	LocalConn  net.Conn // scp server <-> local server
+	RemoteConn *SCPConn // client <-> scp server
 }
 
 // RemoteConn(client) -> LocalConn(server)
-func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
+func downloadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 	addr := src.RemoteAddr()
 	var err error
 	var written, packets int
@@ -51,15 +43,26 @@ func downloadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) err
 		}
 	}
 	Debug("<%s> downloadUntilClose return: %s", err)
-	src.CloseRead()
-	dst.CloseWrite()
+
+	if halfConn, ok := src.(closeReader); ok {
+		halfConn.CloseRead()
+	} else {
+		src.Close()
+	}
+
+	if halfConn, ok := dst.(closeWriter); ok {
+		halfConn.CloseWrite()
+	} else {
+		dst.Close()
+	}
+
 	ch <- written
 	ch <- packets
 	return err
 }
 
 // src:LocalConn(server) -> dst:RemoteConn(client)
-func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error {
+func uploadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 	addr := dst.RemoteAddr()
 	var err error
 	var written, packets int
@@ -98,8 +101,18 @@ func uploadUntilClose(dst HalfCloseConn, src HalfCloseConn, ch chan<- int) error
 		}
 	}
 	Debug("<%s> uploadUntilClose return: %s", err)
-	src.CloseRead()
-	dst.CloseWrite()
+	if halfConn, ok := src.(closeReader); ok {
+		halfConn.CloseRead()
+	} else {
+		src.Close()
+	}
+
+	if halfConn, ok := dst.(closeWriter); ok {
+		halfConn.CloseWrite()
+	} else {
+		dst.Close()
+	}
+
 	ch <- written
 	ch <- packets
 	return err
@@ -136,11 +149,15 @@ func (p *ConnPair) Pump() {
 }
 
 type SCPServer struct {
-	options     *Options
 	idAllocator *scp.IDAllocator
 
 	connPairMutex sync.Mutex
 	connPairs     map[int]*ConnPair
+}
+
+var defaultServer = &SCPServer{
+	idAllocator: scp.NewIDAllocator(1),
+	connPairs:   make(map[int]*ConnPair),
 }
 
 func (ss *SCPServer) AcquireID() int {
@@ -212,15 +229,16 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	defer ss.ReleaseID(id)
 
 	connPair := &ConnPair{}
-	connPair.RemoteConn = NewSCPConn(scon, time.Duration(ss.options.reuseTimeout)*time.Second)
+	connPair.RemoteConn = NewSCPConn(scon, configItemTime("scp.reuse_time"))
+
 	// hold conn pair for reuse
 	ss.AddConnPair(id, connPair)
 	defer ss.RemoveConnPair(id)
 
-	localConn, err := glbLocalConnProvider.CreateLocalConn(scon)
+	localConn, err := upstream.NewConn(scon)
 	if err != nil {
 		scon.Close()
-		Error("create local connnection failed: %s", err.Error())
+		glog.Errorf("upstream new conn failed: remote=%s, err=%s", scon.RemoteAddr().String(), err.Error())
 		return
 	}
 
@@ -228,16 +246,16 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) {
 	connPair.Pump()
 }
 
-func (ss *SCPServer) handleClient(conn Conn) {
+func (ss *SCPServer) handleClient(conn net.Conn) {
 	defer Recover()
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 
-	if ss.options.handshakeTimeout > 0 {
-		scon.SetDeadline(time.Now().Add(time.Duration(ss.options.handshakeTimeout) * time.Second))
+	handshakeTimeout := configItemTime("scp.handshake_timeout")
+	if handshakeTimeout > 0 {
+		scon.SetDeadline(time.Now().Add(handshakeTimeout))
 	}
-
 	err := scon.Handshake()
-	if ss.options.handshakeTimeout > 0 {
+	if handshakeTimeout > 0 {
 		scon.SetDeadline(zeroTime)
 	}
 
@@ -247,8 +265,6 @@ func (ss *SCPServer) handleClient(conn Conn) {
 		return
 	}
 
-	conn.SetOptions(ss.options)
-
 	if scon.IsReused() {
 		ss.onReusedConn(scon)
 	} else {
@@ -256,19 +272,14 @@ func (ss *SCPServer) handleClient(conn Conn) {
 	}
 }
 
-// Start process connections
-func (ss *SCPServer) Start(network, laddr string) error {
-	ln, err := ListenWithOptions(network, laddr, ss.options)
-	if err != nil {
-		return err
-	}
-
-	Info("scpServer listen: %s: %s", network, laddr)
+// Serve accepts incoming connections on the Listener l
+func (ss *SCPServer) Serve(l net.Listener) error {
+	addr := l.Addr().String()
+	glog.Infof("serve: addr=%s", addr)
 
 	var tempDelay time.Duration // how long to sleep on accept failure
-
 	for {
-		conn, err := ln.Accept()
+		conn, err := l.Accept()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Temporary() {
 				if tempDelay == 0 {
@@ -279,23 +290,17 @@ func (ss *SCPServer) Start(network, laddr string) error {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				Error("accept error: %v; retrying in %v", err, tempDelay)
+				glog.Errorf("accept connection failed: addr=%s, err=%s, will retry in %v seconds", addr, err, tempDelay)
 				time.Sleep(tempDelay)
 				continue
 			}
-			Error("accept failed:%s", err.Error())
+			glog.Errorf("accept failed: addr=%s, err=%s", addr, err.Error())
 			return err
 		}
 		tempDelay = 0
-		Debug("<%s> new connection", conn.RemoteAddr())
+		if glog.V(1) {
+			glog.Infof("accept new connection: local=%s, remote=%s", addr, conn.RemoteAddr().String())
+		}
 		go ss.handleClient(conn)
-	}
-}
-
-func NewSCPServer(options *Options) *SCPServer {
-	return &SCPServer{
-		options:     options,
-		idAllocator: scp.NewIDAllocator(1),
-		connPairs:   make(map[int]*ConnPair),
 	}
 }
