@@ -16,9 +16,9 @@ func init() {
 	viper.SetDefault("tcp", "0.0.0.0:1248") // listen tcp: yes
 	viper.SetDefault("kcp", "")             // listen kcp: no
 
-	viper.SetDefault("scp.handshake_timeout", 30) // scp handshake_timeout: 30s
-	viper.SetDefault("scp.reuse_time", 30)        // scp reuse_time: 30s
-	viper.SetDefault("scp.reuse_buffer", 65536)   // scp reuse_buffer: 64kb
+	viper.SetDefault("scp.handshake_timeout", 30) // scp handshake_timeout: 30s, scp握手超时时间
+	viper.SetDefault("scp.reuse_time", 30)        // scp reuse_time: 30s, 客户端断开后，等待重用的时间
+	viper.SetDefault("scp.reuse_buffer", 65536)   // scp reuse_buffer: 64kb, 等待重连期间，缓存发送给客户端的数据；合理值为reuse_time*流量速度
 
 	viper.SetDefault("tcp_option.read_timeout", 0)        // tcp read_timeout: 0, never timeout
 	viper.SetDefault("tcp_option.keepalive", true)        // tcp keepalive: true
