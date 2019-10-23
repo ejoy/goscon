@@ -10,10 +10,7 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/signal"
-	"runtime"
 	"sync"
-	"syscall"
 
 	"github.com/ejoy/goscon/scp"
 	"github.com/ejoy/goscon/upstream"
@@ -30,36 +27,6 @@ import (
 
 // 1.0.0: 2019-10-18, 重写goscon的配置方式
 var _Version = "1.0.0"
-
-const sigReload = syscall.Signal(34)
-const sigStatus = syscall.Signal(35)
-
-func status() {
-	glog.Infof("status:\n\t"+
-		"procs:%d/%d\n\t"+
-		"goroutines:%d\n\t"+
-		"actives:%d",
-		runtime.GOMAXPROCS(0), runtime.NumCPU(),
-		runtime.NumGoroutine(),
-		defaultServer.NumOfConnPairs())
-}
-
-func handleSignal() {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, sigReload, sigStatus, syscall.SIGTERM)
-
-	for sig := range c {
-		glog.Infof("receive signal: %v", sig)
-		switch sig {
-		case sigReload:
-			reloadConfig()
-		case sigStatus:
-			status()
-		case syscall.SIGTERM:
-			glog.Infof("ignore signal: %v", sig)
-		}
-	}
-}
 
 var (
 	optProtocol        = 0
@@ -80,9 +47,10 @@ func marshalConfigFile() (s string) {
 		return
 	}
 	// print current config
-	s = fmt.Sprintf(`config %s =====>>>
+	s = fmt.Sprintf(`####### goscon configuration #######
+# config file %s
 %s
-<<<=====`, viper.ConfigFileUsed(), string(b))
+####### end #######`, viper.ConfigFileUsed(), string(b))
 	return
 }
 
@@ -155,7 +123,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	go handleSignal()
+	if err := startManager(viper.GetString("manager")); err != nil {
+		glog.Errorf("start manager failed: err=%s", err.Error())
+		os.Exit(1)
+	}
 
 	var wg sync.WaitGroup
 

@@ -32,7 +32,11 @@ client <--> goscon <---> server
 
 * build
 ```bash
-go build -vendor=mod
+# normal compile
+go build -mod=vendor
+
+# enable sproto hook
+# go build -tags sproto -mod=vendor
 ```
 
 * config
@@ -49,6 +53,7 @@ go build -vendor=mod
 - 编译测试程序
 
 ```bash
+# normal compile
 go build -mod=vendor ./examples/client
 ```
 

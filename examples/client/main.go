@@ -9,6 +9,7 @@ import (
 	mrand "math/rand"
 	"net"
 	"os"
+	"time"
 
 	"github.com/ejoy/goscon/scp"
 	"github.com/xtaci/kcp-go"
@@ -19,6 +20,7 @@ type ClientCase struct {
 }
 
 func (cc *ClientCase) testEchoWrite(conn net.Conn, times int, ch chan<- []byte, done chan<- error) {
+	interval := time.Second / time.Duration(optPacketsPerSecond)
 	for i := 0; i < times; i++ {
 		sz := mrand.Intn(optMaxPacket-optMinPacket) + optMinPacket
 		buf := make([]byte, sz)
@@ -27,6 +29,7 @@ func (cc *ClientCase) testEchoWrite(conn net.Conn, times int, ch chan<- []byte, 
 			done <- err
 		}
 		ch <- buf[:sz]
+		time.Sleep(interval)
 	}
 	close(ch)
 	done <- nil
@@ -36,7 +39,6 @@ func (cc *ClientCase) testEchoRead(conn net.Conn, ch <-chan []byte, done chan<- 
 	rbuf := make([]byte, optMaxPacket)
 	for buf := range ch {
 		sz := len(buf)
-		crand.Read(rbuf[:sz])
 		if _, err := io.ReadFull(conn, rbuf[:sz]); err != nil {
 			done <- err
 		}
@@ -54,7 +56,7 @@ func (cc *ClientCase) testSCP(originConn *scp.Conn, conn net.Conn) (*scp.Conn, e
 	crand.Read(wbuf)
 
 	originConn.Write(wbuf[:sz/2])
-	originConn.Close()
+	//originConn.Close()
 	originConn.Write(wbuf[sz/2:])
 
 	scon := scp.Client(conn, &scp.Config{ConnForReused: originConn})
@@ -115,6 +117,7 @@ func (cc *ClientCase) Start() error {
 	if err != nil {
 		return err
 	}
+	defer scon.Close()
 
 	if err = cc.testN(scon, optPackets-n); err != nil {
 		return err
@@ -167,7 +170,7 @@ func testN(addr string) {
 	}
 }
 
-var optConcurrent, optPackets, optMinPacket, optMaxPacket int
+var optConcurrent, optPackets, optPacketsPerSecond, optMinPacket, optMaxPacket int
 var optVerbose bool
 var network string
 var fecData, fecParity int
@@ -178,6 +181,7 @@ func main() {
 
 	flag.IntVar(&optConcurrent, "concurrent", 1, "concurrent connections")
 	flag.IntVar(&optPackets, "packets", 100, "packets per connection")
+	flag.IntVar(&optPacketsPerSecond, "pps", 100, "packets per second each connection")
 	flag.IntVar(&optMinPacket, "min", 50, "min packet size")
 	flag.IntVar(&optMaxPacket, "max", 100, "max packet size")
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
