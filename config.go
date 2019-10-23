@@ -13,6 +13,8 @@ var (
 
 // init default configure
 func init() {
+	viper.SetDefault("manager", "127.0.0.1:6620") // manager: listen address, 为空表示不启用管理功能
+
 	viper.SetDefault("tcp", "0.0.0.0:1248") // listen tcp: yes
 	viper.SetDefault("kcp", "")             // listen kcp: no
 
