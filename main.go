@@ -91,6 +91,7 @@ func reloadConfig() (err error) {
 func main() {
 	// set default log directory
 	flag.Set("log_dir", "./")
+	flag.Set("logtostderr", "true")
 
 	showVersion := flag.Bool("version", false, "show version and exit")
 	testConfig := flag.Bool("t", false, "test configuration and exit")

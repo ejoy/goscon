@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	mrand "math/rand"
 	"net"
 	"os"
@@ -56,7 +57,7 @@ func (cc *ClientCase) testSCP(originConn *scp.Conn, conn net.Conn) (*scp.Conn, e
 	crand.Read(wbuf)
 
 	originConn.Write(wbuf[:sz/2])
-	//originConn.Close()
+	originConn.Close()
 	originConn.Write(wbuf[sz/2:])
 
 	scon := scp.Client(conn, &scp.Config{ConnForReused: originConn})
@@ -97,6 +98,7 @@ func Dial(network, connect string) (net.Conn, error) {
 func (cc *ClientCase) Start() error {
 	old, err := Dial(network, cc.connect)
 	if err != nil {
+		log.Printf("dail failed: connect=%s, err=%s", cc.connect, err.Error())
 		return err
 	}
 	defer old.Close()
@@ -104,22 +106,26 @@ func (cc *ClientCase) Start() error {
 	n := optPackets / 2
 	originConn := scp.Client(old, nil)
 	if err = cc.testN(originConn, n); err != nil {
+		log.Printf("testN failed: addr=%s, err=%s", old.LocalAddr(), err.Error())
 		return err
 	}
 
 	new, err := Dial(network, cc.connect)
 	if err != nil {
+		log.Printf("dail failed: connect=%s, err=%s", cc.connect, err.Error())
 		return err
 	}
 	defer new.Close()
 
 	scon, err := cc.testSCP(originConn, new)
 	if err != nil {
+		log.Printf("testSCP failed: addr=%s, err=%s", new.LocalAddr(), err.Error())
 		return err
 	}
 	defer scon.Close()
 
 	if err = cc.testN(scon, optPackets-n); err != nil {
+		log.Printf("testN failed: addr=%s, err=%s", new.LocalAddr(), err.Error())
 		return err
 	}
 	return nil
@@ -165,7 +171,7 @@ func testN(addr string) {
 	for i := 0; i < optConcurrent; i++ {
 		err := <-ch
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "<%d>: %s\n", i, err.Error())
+			log.Printf("<%d>: %s\n", i, err.Error())
 		}
 	}
 }
@@ -192,6 +198,8 @@ func main() {
 	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 	flag.Parse()
 
+	log.SetFlags(log.Lshortfile | log.LstdFlags)
+
 	args := flag.Args()
 
 	if len(args) > 0 && args[0] == "kcp" {
@@ -204,10 +212,10 @@ func main() {
 	if echoServer != "" {
 		ln, err := startEchoServer(echoServer)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "start echo server: %s\n", err.Error())
+			log.Printf("start echo server: %s", err.Error())
 			return
 		}
-		fmt.Fprintf(os.Stdout, "echo server: %s", ln.Addr())
+		log.Printf("echo server: %s", ln.Addr())
 		ch := make(chan bool, 0)
 		ch <- true
 		return
