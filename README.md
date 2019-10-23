@@ -35,8 +35,9 @@ client <--> goscon <---> server
 # normal compile
 go build -mod=vendor
 
-# enable sproto hook
-# go build -tags sproto -mod=vendor
+# enable sproto hook & debug
+# go build -tags sproto,debug -mod=vendor
+
 ```
 
 * config
