@@ -5,8 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"io"
-
 	"github.com/ejoy/goscon/scp"
 	"github.com/ejoy/goscon/upstream"
 	"github.com/golang/glog"
@@ -17,8 +15,7 @@ type ConnPair struct {
 	RemoteConn *SCPConn // client <-> scp server
 }
 
-// RemoteConn(client) -> LocalConn(server)
-func downloadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
+func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
 	addr := src.RemoteAddr()
 	var err error
 	var written, packets int
@@ -26,69 +23,12 @@ func downloadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 	for {
 		nr, er := src.Read(buf)
 		if glog.V(2) {
-			glog.Infof("recv packet from client: add=%s, sz=%d", addr, nr)
+			glog.Infof("recv packet: tag=%s, add=%s, sz=%d", tag, addr, nr)
 		}
-		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
-			if nw > 0 {
-				packets++
-				written += nw
-			}
-			if ew != nil {
-				err = ew
-				break
-			}
-		}
-		if er != nil {
-			err = er
-			break
-		}
-	}
-
-	if glog.V(1) {
-		glog.Infof("downloadUntilClose return: err=%v", err)
-	}
-
-	if halfConn, ok := src.(closeReader); ok {
-		halfConn.CloseRead()
-	} else {
-		src.Close()
-	}
-
-	if halfConn, ok := dst.(closeWriter); ok {
-		halfConn.CloseWrite()
-	} else {
-		dst.Close()
-	}
-
-	ch <- written
-	ch <- packets
-	return err
-}
-
-// src:LocalConn(server) -> dst:RemoteConn(client)
-func uploadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
-	addr := dst.RemoteAddr()
-	var err error
-	var written, packets int
-	buf := make([]byte, scp.NetBufferSize)
-
-	delay := time.Duration(optUploadMaxDelay) * time.Millisecond
-
-	for {
-		var nr int
-		var er error
-		if optUploadMinPacket > 0 && delay > 0 {
-			src.SetReadDeadline(time.Now().Add(delay))
-			nr, er = io.ReadAtLeast(src, buf, optUploadMinPacket)
-		} else {
-			nr, er = src.Read(buf)
-		}
-
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if glog.V(2) {
-				glog.Infof("send packet to client: addr=%s, sz=%d", addr, nw)
+				glog.Infof("send packet: tag=%s, addr=%s, sz=%d", tag, addr, nw)
 			}
 			if nw > 0 {
 				packets++
@@ -100,16 +40,13 @@ func uploadUntilClose(dst net.Conn, src net.Conn, ch chan<- int) error {
 			}
 		}
 		if er != nil {
-			if netError, ok := er.(net.Error); ok && netError.Timeout() {
-				continue
-			}
 			err = er
 			break
 		}
 	}
 
 	if glog.V(1) {
-		glog.Infof("uploadUntilClose return: err=%v", err)
+		glog.Infof("copyUntilError return: tag=%s err=%v", tag, err)
 	}
 
 	if halfConn, ok := src.(closeReader); ok {
@@ -140,8 +77,8 @@ func (p *ConnPair) Pump() {
 	downloadCh := make(chan int)
 	uploadCh := make(chan int)
 
-	go downloadUntilClose(p.LocalConn, p.RemoteConn, downloadCh)
-	go uploadUntilClose(p.RemoteConn, p.LocalConn, uploadCh)
+	go copyUntilError("c2s", p.LocalConn, p.RemoteConn, downloadCh)
+	go copyUntilError("s2c", p.RemoteConn, p.LocalConn, uploadCh)
 
 	dlData := <-downloadCh
 	dlPackets := <-downloadCh

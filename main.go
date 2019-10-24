@@ -28,12 +28,6 @@ import (
 // 1.0.0: 2019-10-18, 重写goscon的配置方式
 var _Version = "1.0.0"
 
-var (
-	optProtocol        = 0
-	optUploadMinPacket int
-	optUploadMaxDelay  int
-)
-
 func testConfigFile(filename string) error {
 	viper.SetConfigFile(filename)
 	return viper.ReadInConfig()
