@@ -157,12 +157,12 @@ func startEchoServer(laddr string) (net.Listener, error) {
 	return ln, nil
 }
 
-func testN(addr string) {
+func testN() {
 	ch := make(chan error, optConcurrent)
 	for i := 0; i < optConcurrent; i++ {
 		go func() {
 			cc := &ClientCase{
-				connect: addr,
+				connect: optConnect,
 			}
 			ch <- cc.Start()
 		}()
@@ -176,22 +176,24 @@ func testN(addr string) {
 	}
 }
 
+var optConnect string
 var optConcurrent, optPackets, optPacketsPerSecond, optMinPacket, optMaxPacket int
+var optRunRounds uint
 var optVerbose bool
 var network string
 var fecData, fecParity int
 
 func main() {
 	var echoServer string
-	var sconServer string
 
 	flag.IntVar(&optConcurrent, "concurrent", 1, "concurrent connections")
-	flag.IntVar(&optPackets, "packets", 100, "packets per connection")
+	flag.IntVar(&optPackets, "packets", 100, "total packets each connection")
 	flag.IntVar(&optPacketsPerSecond, "pps", 100, "packets per second each connection")
 	flag.IntVar(&optMinPacket, "min", 50, "min packet size")
 	flag.IntVar(&optMaxPacket, "max", 100, "max packet size")
+	flag.UintVar(&optRunRounds, "rounds", 1, "run rounds")
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
-	flag.StringVar(&sconServer, "sconServer", "127.0.0.1:1248", "connect to scon server")
+	flag.StringVar(&optConnect, "connect", "127.0.0.1:1248", "connect to scon server")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
 	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
 	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
@@ -215,13 +217,22 @@ func main() {
 			log.Printf("start echo server: %s", err.Error())
 			return
 		}
-		log.Printf("echo server: %s", ln.Addr())
+		log.Print("run as echo server")
+		log.Printf("listen %s", ln.Addr())
 		ch := make(chan bool, 0)
 		ch <- true
 		return
 	}
 
-	if sconServer != "" {
-		testN(sconServer)
+	if optConnect != "" {
+		log.Print("run as echo client")
+		log.Printf("config: server=%s, concurrent=%d, packets=%d, pps=%d, sz=[%d, %d]",
+			optConnect, optConcurrent, optPackets, optPacketsPerSecond, optMinPacket, optMaxPacket)
+		log.Printf("run test %d rounds", optRunRounds)
+		var round uint
+		for round = 1; round <= optRunRounds; round++ {
+			log.Printf("round %d", round)
+			testN()
+		}
 	}
 }

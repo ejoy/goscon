@@ -16,14 +16,14 @@ type ConnPair struct {
 }
 
 func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
-	addr := src.RemoteAddr()
 	var err error
 	var written, packets int
 	buf := make([]byte, scp.NetBufferSize)
+	addr := src.RemoteAddr()
 	for {
 		nr, er := src.Read(buf)
 		if glog.V(2) {
-			glog.Infof("recv packet: tag=%s, add=%s, sz=%d", tag, addr, nr)
+			glog.Infof("recv packet: tag=%s, addr=%s, sz=%d", tag, addr, nr)
 		}
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
