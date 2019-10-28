@@ -7,7 +7,6 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/libp2p/go-reuseport"
-	"github.com/spf13/viper"
 	"github.com/xtaci/kcp-go"
 )
 
@@ -71,13 +70,13 @@ func (l *KCPListener) Accept() (net.Conn, error) {
 	}
 
 	// set kcp option
-	mtu := viper.GetInt("kcp_option.opt_mtu")
-	nodelay := viper.GetInt("kcp_option.opt_nodelay")
-	interval := viper.GetInt("kcp_option.opt_interval")
-	resend := viper.GetInt("kcp_option.opt_resend")
-	nc := viper.GetInt("kcp_option.opt_nc")
-	sndwnd := viper.GetInt("kcp_option.opt_sndwnd")
-	rcvwnd := viper.GetInt("kcp_option.opt_rcvwnd")
+	mtu := configItemInt("kcp_option.opt_mtu")
+	nodelay := configItemInt("kcp_option.opt_nodelay")
+	interval := configItemInt("kcp_option.opt_interval")
+	resend := configItemInt("kcp_option.opt_resend")
+	nc := configItemInt("kcp_option.opt_nc")
+	sndwnd := configItemInt("kcp_option.opt_sndwnd")
+	rcvwnd := configItemInt("kcp_option.opt_rcvwnd")
 	conn.SetMtu(mtu)
 	conn.SetWindowSize(sndwnd, rcvwnd)
 	conn.SetNoDelay(nodelay, interval, resend, nc)
@@ -95,8 +94,8 @@ func NewKCPListener(laddr string) (*KCPListener, error) {
 		return nil, err
 	}
 
-	fecDataShards := viper.GetInt("kcp_option.fec_data_shards")
-	fecParityShards := viper.GetInt("kcp_option.fec_parity_shards")
+	fecDataShards := configItemInt("kcp_option.fec_data_shards")
+	fecParityShards := configItemInt("kcp_option.fec_parity_shards")
 
 	fecHeaderSize := 0
 	if fecDataShards != 0 && fecParityShards != 0 {
@@ -110,8 +109,8 @@ func NewKCPListener(laddr string) (*KCPListener, error) {
 		return nil, err
 	}
 
-	readBuffer := viper.GetInt("kcp_option.read_buffer")
-	writeBuffer := viper.GetInt("kcp_option.write_buffer")
+	readBuffer := configItemInt("kcp_option.read_buffer")
+	writeBuffer := configItemInt("kcp_option.write_buffer")
 	ln.SetReadBuffer(readBuffer)
 	ln.SetWriteBuffer(writeBuffer)
 
