@@ -1,14 +1,22 @@
 package main
 
 import (
+	"fmt"
 	"runtime"
+	"sync"
 	"time"
 
+	"github.com/ejoy/goscon/scp"
+	"github.com/ejoy/goscon/upstream"
+	"github.com/golang/glog"
 	"github.com/spf13/viper"
+	yaml "gopkg.in/yaml.v2"
 )
 
 var (
-	zeroTime time.Time
+	zeroTime    time.Time
+	configMu    sync.Mutex
+	configCache map[string]interface{}
 )
 
 // init default configure
@@ -41,10 +49,91 @@ func init() {
 	viper.SetDefault("kcp_option.opt_nc", 1)        // kcp opt_nc: 1, 是否关闭拥塞控制，0-开启，1-关闭
 	viper.SetDefault("kcp_option.opt_sndwnd", 2048) // kcp opt_sndwnd: 2048 byte, kcp连接的发送窗口
 	viper.SetDefault("kcp_option.opt_rcvwnd", 2048) // kcp opt_sndwnd: 2048 byte, kcp连接的接收窗口
+
+	configCache = make(map[string]interface{})
+}
+
+func marshalConfigFile() (s string) {
+	c := viper.AllSettings()
+	b, err := yaml.Marshal(c)
+	if err != nil {
+		glog.Errorf("marshal failed: err=%s", err.Error())
+		return
+	}
+	// print current config
+	s = fmt.Sprintf(`####### goscon configuration #######
+# config file %s
+%s
+####### end #######`, viper.ConfigFileUsed(), string(b))
+	return
+}
+
+func reloadConfig() (err error) {
+	glog.Info("load config")
+
+	// try to load config from disk
+	if viper.ConfigFileUsed() == "" {
+		if glog.V(3) {
+			glog.Error("no config file used")
+		}
+		return
+	}
+
+	if err = viper.ReadInConfig(); err != nil {
+		glog.Errorf("read configuration failed: %s", err.Error())
+		return
+	}
+
+	// print current config
+	glog.Info(marshalConfigFile())
+
+	// clear cache
+	configMu.Lock()
+	for k := range configCache {
+		delete(configCache, k)
+	}
+	configMu.Unlock()
+
+	// update upstream
+	var hosts []upstream.Host
+	if err = viper.UnmarshalKey("hosts", &hosts); err != nil {
+		glog.Errorf("unmarshal hosts failed: %s", err.Error())
+		return err
+	}
+	upstream.UpdateHosts(hosts)
+
+	// update scp
+	reuseBuffer := viper.GetInt("scp.reuse_buffer")
+	if reuseBuffer > 0 {
+		scp.SentCacheSize = reuseBuffer
+	}
+	return
+}
+
+func configItemBool(name string) bool {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if v, ok := configCache[name]; ok {
+		return v.(bool)
+	}
+	v := viper.GetBool(name)
+	configCache[name] = v
+	return v
+}
+
+func configItemInt(name string) int {
+	configMu.Lock()
+	defer configMu.Unlock()
+	if v, ok := configCache[name]; ok {
+		return v.(int)
+	}
+	v := viper.GetInt(name)
+	configCache[name] = v
+	return v
 }
 
 func configItemTime(name string) time.Duration {
-	seconds := viper.GetInt(name)
+	seconds := configItemInt(name)
 	if seconds <= 0 {
 		return 0
 	}

@@ -12,11 +12,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/ejoy/goscon/scp"
-	"github.com/ejoy/goscon/upstream"
 	"github.com/golang/glog"
 	"github.com/spf13/viper"
-	yaml "gopkg.in/yaml.v2"
 )
 
 // log rule:
@@ -31,55 +28,6 @@ var _Version = "1.0.0"
 func testConfigFile(filename string) error {
 	viper.SetConfigFile(filename)
 	return viper.ReadInConfig()
-}
-
-func marshalConfigFile() (s string) {
-	c := viper.AllSettings()
-	b, err := yaml.Marshal(c)
-	if err != nil {
-		glog.Errorf("marshal failed: err=%s", err.Error())
-		return
-	}
-	// print current config
-	s = fmt.Sprintf(`####### goscon configuration #######
-# config file %s
-%s
-####### end #######`, viper.ConfigFileUsed(), string(b))
-	return
-}
-
-func reloadConfig() (err error) {
-	glog.Info("load config")
-
-	// try to load config from disk
-	if viper.ConfigFileUsed() == "" {
-		if glog.V(3) {
-			glog.Error("no config file used")
-		}
-	} else {
-		if err = viper.ReadInConfig(); err != nil {
-			glog.Errorf("read configuration failed: %s", err.Error())
-			return
-		}
-	}
-
-	// print current config
-	glog.Info(marshalConfigFile())
-
-	// update upstream
-	var hosts []upstream.Host
-	if err = viper.UnmarshalKey("hosts", &hosts); err != nil {
-		glog.Errorf("unmarshal hosts failed: %s", err.Error())
-		return err
-	}
-	upstream.UpdateHosts(hosts)
-
-	// update scp
-	reuseBuffer := viper.GetInt("scp.reuse_buffer")
-	if reuseBuffer > 0 {
-		scp.SentCacheSize = reuseBuffer
-	}
-	return
 }
 
 func main() {

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/spf13/viper"
 )
 
 type tcpConn struct {
@@ -36,7 +35,7 @@ func (l *TCPListener) Accept() (conn net.Conn, err error) {
 		glog.Infof("accept new tcp connection: addr=%s", c.RemoteAddr())
 	}
 
-	keepalive := viper.GetBool("tcp_option.keepalive")
+	keepalive := configItemBool("tcp_option.keepalive")
 	keepaliveInterval := configItemTime("tcp_option.keepalive_interval")
 	readTimeout := configItemTime("tcp_option.read_timeout")
 
