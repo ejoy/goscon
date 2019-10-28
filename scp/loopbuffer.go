@@ -2,6 +2,7 @@ package scp
 
 import (
 	"io"
+	"sync"
 )
 
 type loopBuffer struct {
@@ -22,6 +23,7 @@ func (b *loopBuffer) Len() int {
 // total space allocated for the buffer's data.
 func (b *loopBuffer) Cap() int { return cap(b.buf) }
 
+// Write .
 func (b *loopBuffer) Write(p []byte) (n int, err error) {
 	n = len(p)
 	capacity := cap(b.buf)
@@ -48,6 +50,7 @@ func (b *loopBuffer) Write(p []byte) (n int, err error) {
 	return
 }
 
+// ReadLastBytes .
 func (b *loopBuffer) ReadLastBytes(n int) (buf []byte, err error) {
 	if n > b.Len() {
 		err = io.ErrShortBuffer
@@ -66,18 +69,58 @@ func (b *loopBuffer) ReadLastBytes(n int) (buf []byte, err error) {
 	return
 }
 
-func deepCopyLoopBuffer(lp *loopBuffer) *loopBuffer {
-	buf := make([]byte, cap(lp.buf))
-	copy(buf, lp.buf)
-	return &loopBuffer{
-		buf:    buf,
-		off:    lp.off,
-		looped: lp.looped,
+// Reset .
+func (b *loopBuffer) Reset() {
+	b.off = 0
+	b.looped = false
+}
+
+// CopyTo .
+func (b *loopBuffer) CopyTo(dst *loopBuffer) {
+	if cap(dst.buf) != cap(b.buf) {
+		dst.buf = make([]byte, cap(b.buf))
 	}
+
+	copy(dst.buf, b.buf)
+	dst.off = b.off
+	dst.looped = b.looped
+	return
 }
 
 func newLoopBuffer(cap int) *loopBuffer {
 	return &loopBuffer{
 		buf: make([]byte, cap),
 	}
+}
+
+type loopBufferPool struct {
+	pool sync.Pool
+}
+
+func (b *loopBufferPool) Get() *loopBuffer {
+	return b.pool.Get().(*loopBuffer)
+}
+
+// if RueseBufferSize changes, invalidate all old buffer
+func (b *loopBufferPool) Put(v *loopBuffer) {
+	if v.Cap() != RueseBufferSize {
+		return
+	}
+	b.pool.Put(v)
+}
+
+func newBufferPool() *loopBufferPool {
+	return &loopBufferPool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				return newLoopBuffer(RueseBufferSize)
+			},
+		},
+	}
+}
+
+var defaultLoopBufferPool *loopBufferPool
+
+func init() {
+	defaultLoopBufferPool = newBufferPool()
 }

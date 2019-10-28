@@ -15,8 +15,8 @@ type SCPServer interface {
 	// query a conneciton by id
 	QueryByID(id int) *Conn
 
-	// close a conneciton by id
-	CloseByID(id int) *Conn
+	// close a conneciton by id, panic if conn is not frozen
+	CloseByID(id int) (conn *Conn)
 }
 
 type Config struct {

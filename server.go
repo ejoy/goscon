@@ -10,7 +10,13 @@ import (
 	"github.com/golang/glog"
 )
 
-type ConnPair struct {
+var copyPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, scp.NetBufferSize)
+	},
+}
+
+type connPair struct {
 	LocalConn  net.Conn // scp server <-> local server
 	RemoteConn *SCPConn // client <-> scp server
 }
@@ -18,7 +24,9 @@ type ConnPair struct {
 func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
 	var err error
 	var written, packets int
-	buf := make([]byte, scp.NetBufferSize)
+	buf := copyPool.Get().([]byte)
+	defer copyPool.Put(buf)
+
 	addr := src.RemoteAddr()
 	for {
 		nr, er := src.Read(buf)
@@ -66,12 +74,7 @@ func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error
 	return err
 }
 
-func (p *ConnPair) Reuse(scon *scp.Conn) {
-	glog.Infof("connection pair reuse: id=%d, old_client=%s, new_client=%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(), scon.RemoteAddr())
-	p.RemoteConn.SetConn(scon)
-}
-
-func (p *ConnPair) Pump() {
+func (p *connPair) Pump() {
 	glog.Infof("connection pair new: id=%d, client=%s->%s, server=%s->%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(),
 		p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr())
 	downloadCh := make(chan int)
@@ -88,26 +91,30 @@ func (p *ConnPair) Pump() {
 		p.RemoteConn.RemoteAddr(), p.LocalConn.LocalAddr(), dlData, dlPackets, ulData, ulPackets)
 }
 
+// SCPServer implements scp.SCPServer
 type SCPServer struct {
 	idAllocator *scp.IDAllocator
 
 	connPairMutex sync.Mutex
-	connPairs     map[int]*ConnPair
+	connPairs     map[int]*connPair
 }
 
 var defaultServer = &SCPServer{
 	idAllocator: scp.NewIDAllocator(1),
-	connPairs:   make(map[int]*ConnPair),
+	connPairs:   make(map[int]*connPair),
 }
 
+// AcquireID implments scp.SCPServer interface
 func (ss *SCPServer) AcquireID() int {
 	return ss.idAllocator.AcquireID()
 }
 
+// ReleaseID implments scp.SCPServer interface
 func (ss *SCPServer) ReleaseID(id int) {
 	ss.idAllocator.ReleaseID(id)
 }
 
+// QueryByID implments scp.SCPServer interface
 func (ss *SCPServer) QueryByID(id int) *scp.Conn {
 	ss.connPairMutex.Lock()
 	defer ss.connPairMutex.Unlock()
@@ -118,14 +125,9 @@ func (ss *SCPServer) QueryByID(id int) *scp.Conn {
 	return nil
 }
 
-func (ss *SCPServer) NumOfConnPairs() int {
-	ss.connPairMutex.Lock()
-	defer ss.connPairMutex.Unlock()
-	return len(ss.connPairs)
-}
-
+// CloseByID implments scp.SCPServer interface
 func (ss *SCPServer) CloseByID(id int) *scp.Conn {
-	pair := ss.GetConnPair(id)
+	pair := ss.getConnPair(id)
 
 	if pair != nil {
 		pair.RemoteConn.CloseForReuse()
@@ -134,7 +136,14 @@ func (ss *SCPServer) CloseByID(id int) *scp.Conn {
 	return nil
 }
 
-func (ss *SCPServer) AddConnPair(id int, pair *ConnPair) {
+// NumOfConnPairs .
+func (ss *SCPServer) NumOfConnPairs() int {
+	ss.connPairMutex.Lock()
+	defer ss.connPairMutex.Unlock()
+	return len(ss.connPairs)
+}
+
+func (ss *SCPServer) addConnPair(id int, pair *connPair) {
 	ss.connPairMutex.Lock()
 	defer ss.connPairMutex.Unlock()
 	if _, ok := ss.connPairs[id]; ok {
@@ -144,77 +153,88 @@ func (ss *SCPServer) AddConnPair(id int, pair *ConnPair) {
 	ss.connPairs[id] = pair
 }
 
-func (ss *SCPServer) RemoveConnPair(id int) {
+func (ss *SCPServer) removeConnPair(id int) {
 	ss.connPairMutex.Lock()
 	defer ss.connPairMutex.Unlock()
 	delete(ss.connPairs, id)
 }
 
-func (ss *SCPServer) GetConnPair(id int) *ConnPair {
+func (ss *SCPServer) getConnPair(id int) *connPair {
 	ss.connPairMutex.Lock()
 	defer ss.connPairMutex.Unlock()
 	return ss.connPairs[id]
 }
 
-func (ss *SCPServer) onReusedConn(scon *scp.Conn) {
+func (ss *SCPServer) onReuseConn(scon *scp.Conn) bool {
 	id := scon.ID()
-	pair := ss.GetConnPair(id)
+	pair := ss.getConnPair(id)
 
-	if pair != nil {
-		pair.Reuse(scon)
+	if pair == nil {
+		glog.Errorf("connection pair reuse failed: id=%d, new_client=%s, err=no pair", id, scon.RemoteAddr())
+		return false
 	}
+	oldClientAddr := pair.RemoteConn.RemoteAddr()
+	if !pair.RemoteConn.SetConn(scon) {
+		glog.Errorf("connection pair reuse failed: id=%d, old_client=%s, new_client=%s, err=closed", id, oldClientAddr, scon.RemoteAddr())
+	}
+
+	glog.Infof("connection pair reuse: id=%d, old_client=%s, new_client=%s", id, oldClientAddr, scon.RemoteAddr())
+	return true
 }
 
-func (ss *SCPServer) onNewConn(scon *scp.Conn) {
+func (ss *SCPServer) onNewConn(scon *scp.Conn) bool {
 	id := scon.ID()
 	defer ss.ReleaseID(id)
 
-	connPair := &ConnPair{}
+	connPair := &connPair{}
 	connPair.RemoteConn = NewSCPConn(scon, configItemTime("scp.reuse_time"))
 
 	// hold conn pair for reuse
-	ss.AddConnPair(id, connPair)
-	defer ss.RemoveConnPair(id)
+	ss.addConnPair(id, connPair)
+	defer ss.removeConnPair(id)
 
 	localConn, err := upstream.NewConn(scon)
 	if err != nil {
-		scon.Close()
-		glog.Errorf("upstream new conn failed: client=%s, err=%s", scon.RemoteAddr().String(), err.Error())
-		return
+		glog.Errorf("upstream new conn failed: id=%d, client=%s, err=%s", id, scon.RemoteAddr(), err.Error())
+		return false
 	}
 
 	connPair.LocalConn = localConn
-	connPair.Pump()
+	go connPair.Pump()
+	return true
 }
 
-func (ss *SCPServer) handleClient(conn net.Conn) {
+func (ss *SCPServer) handleConn(conn net.Conn) {
 	defer func() {
 		if err := recover(); err != nil {
 			glog.Errorf("goroutine failed:%v", err)
 			glog.Errorf("stacks: %s", stacks(false))
 		}
 	}()
+
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 
+	// handshake
 	handshakeTimeout := configItemTime("scp.handshake_timeout")
 	if handshakeTimeout > 0 {
 		scon.SetDeadline(time.Now().Add(handshakeTimeout))
-	}
-	err := scon.Handshake()
-	if handshakeTimeout > 0 {
-		scon.SetDeadline(zeroTime)
+		defer scon.SetDeadline(zeroTime)
 	}
 
-	if err != nil {
+	if err := scon.Handshake(); err != nil {
 		glog.Errorf("scp handshake faield: client=%s, err=%s", conn.RemoteAddr().String(), err.Error())
-		conn.Close()
+		scon.Close()
 		return
 	}
 
+	var ok bool
 	if scon.IsReused() {
-		ss.onReusedConn(scon)
+		ok = ss.onReuseConn(scon)
 	} else {
-		ss.onNewConn(scon)
+		ok = ss.onNewConn(scon)
+	}
+	if !ok {
+		scon.Close()
 	}
 }
 
@@ -247,6 +267,6 @@ func (ss *SCPServer) Serve(l net.Listener) error {
 		if glog.V(1) {
 			glog.Infof("accept new connection: listen=%s, client=%s", addr, conn.RemoteAddr().String())
 		}
-		go ss.handleClient(conn)
+		go ss.handleConn(conn)
 	}
 }

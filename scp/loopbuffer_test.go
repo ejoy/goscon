@@ -33,5 +33,4 @@ func TestLoopbuffer(t *testing.T) {
 			t.Errorf("ReadLastBytes Unequal, n:%d, last:%d get:% x, expected:% x ", n, last, lastBytes, buf[n-last:])
 		}
 	}
-
 }
