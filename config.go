@@ -105,7 +105,7 @@ func reloadConfig() (err error) {
 	// update scp
 	reuseBuffer := viper.GetInt("scp.reuse_buffer")
 	if reuseBuffer > 0 {
-		scp.SentCacheSize = reuseBuffer
+		scp.RueseBufferSize = reuseBuffer
 	}
 	return
 }

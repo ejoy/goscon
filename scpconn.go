@@ -113,21 +113,23 @@ func (s *SCPConn) Write(p []byte) (int, error) {
 }
 
 func (s *SCPConn) setClosed() {
-	if !s.connClosed {
-		s.connMutex.Lock()
-		s.connClosed = true
-		s.connErr = errConnClosed
-		s.connCond.Broadcast()
-		s.connMutex.Unlock()
-	}
-}
-
-// set new conn
-func (s *SCPConn) SetConn(conn *scp.Conn) {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
 	if s.connClosed {
 		return
+	}
+
+	s.connClosed = true
+	s.connErr = errConnClosed
+	s.connCond.Broadcast()
+}
+
+// set new conn
+func (s *SCPConn) SetConn(conn *scp.Conn) bool {
+	s.connMutex.Lock()
+	defer s.connMutex.Unlock()
+	if s.connClosed {
+		return false
 	}
 
 	if s.connErr == nil {
@@ -142,15 +144,17 @@ func (s *SCPConn) SetConn(conn *scp.Conn) {
 	s.wr.Lock()
 	s.wr.Unlock()
 
+	s.Conn.Close()
 	s.Conn = conn
 	s.setErrorWithLocked(nil)
 	s.connCond.Broadcast()
+	return true
 }
 
 // close low-level conn and wait for reuse
 func (s *SCPConn) CloseForReuse() {
 	s.setError(errConnClosed)
-	s.Conn.Close()
+	s.Conn.Freeze()
 
 	// not reading
 	s.rd.Lock()

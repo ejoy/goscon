@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/rc4"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/ejoy/goscon/dh64"
 )
+
+var errConnFrozen = errors.New("conn frozen")
 
 type cipherConnReader struct {
 	sync.Mutex
@@ -121,14 +124,17 @@ func newCipherConnWriter(secret leu64) *cipherConnWriter {
 	}
 }
 
+// Conn .
 type Conn struct {
 	// constant
 	conn   net.Conn
 	config *Config
 
-	handshakeMutex    sync.Mutex
-	handshakeErr      error
-	handshakeComplete bool
+	connMutex  sync.Mutex
+	connErr    error
+	handshaked bool // handshake finish flag
+	frozen     bool // if conn is frozen, can't make any change
+	closed     bool // if conn is closed, can't reuse
 
 	// half conn
 	in  *cipherConnReader
@@ -139,7 +145,7 @@ type Conn struct {
 	handshakes int
 	secret     leu64
 
-	sentCache *loopBuffer
+	reuseBuffer *loopBuffer
 
 	reused bool // reused conn
 }
@@ -147,12 +153,12 @@ type Conn struct {
 func (c *Conn) initNewConn(id int, secret leu64) {
 	c.id = id
 	c.secret = secret
-	c.sentCache = newLoopBuffer(SentCacheSize)
+	c.reuseBuffer = defaultLoopBufferPool.Get()
 
 	c.in = newCipherConnReader(c.secret)
 	c.out = newCipherConnWriter(c.secret)
 	c.in.SetReader(c.conn)
-	c.out.SetWriter(io.MultiWriter(c.sentCache, c.conn))
+	c.out.SetWriter(io.MultiWriter(c.reuseBuffer, c.conn))
 
 	c.reused = false
 }
@@ -162,11 +168,13 @@ func (c *Conn) initReuseConn(oldConn *Conn, handshakes int) {
 	c.handshakes = handshakes
 	c.secret = oldConn.secret
 
-	c.sentCache = deepCopyLoopBuffer(oldConn.sentCache)
+	reuseBuffer := defaultLoopBufferPool.Get()
+	oldConn.reuseBuffer.CopyTo(reuseBuffer)
+	c.reuseBuffer = reuseBuffer
 	c.in = deepCopyCipherConnReader(oldConn.in)
 	c.out = deepCopyCipherConnWriter(oldConn.out)
 	c.in.SetReader(c.conn)
-	c.out.SetWriter(io.MultiWriter(c.sentCache, c.conn))
+	c.out.SetWriter(io.MultiWriter(c.reuseBuffer, c.conn))
 
 	c.reused = true
 }
@@ -233,12 +241,13 @@ func (c *Conn) clientReuseHandshake() error {
 	}
 
 	diff := c.out.GetBytesSent() - int(rp.received)
-	if diff < 0 || diff > c.sentCache.Len() {
+	if diff < 0 || diff > c.reuseBuffer.Len() {
+		// TODO: warning
 		return ErrNotAcceptable
 	}
 
 	if diff > 0 {
-		lastBytes, err := c.sentCache.ReadLastBytes(diff)
+		lastBytes, err := c.reuseBuffer.ReadLastBytes(diff)
 		if err != nil {
 			return err
 		}
@@ -282,9 +291,8 @@ func (c *Conn) clientNewHandshake() error {
 func (c *Conn) clientHandshake() error {
 	if c.id != 0 {
 		return c.clientReuseHandshake()
-	} else {
-		return c.clientNewHandshake()
 	}
+	return c.clientNewHandshake()
 }
 
 func (c *Conn) serverReuseHandshake(rq *reuseConnReq) error {
@@ -316,13 +324,18 @@ OuterLoop:
 		oldConn = c.config.ScpServer.CloseByID(rq.id)
 
 		// double check
-		if oldConn == nil {
+		if oldConn == nil || oldConn.IsClosed() {
 			rp.code = SCPStatusIDNotFound
 			break OuterLoop
 		}
 
+		// panic if conn is not frozen
+		if !oldConn.IsFrozen() {
+			panic("conn is not frozen")
+		}
+
 		diff = oldConn.out.GetBytesSent() - int(rq.received)
-		if diff < 0 || diff > oldConn.sentCache.Len() {
+		if diff < 0 || diff > oldConn.reuseBuffer.Len() {
 			rp.code = SCPStatusNotAcceptable
 			break OuterLoop
 		}
@@ -340,7 +353,7 @@ OuterLoop:
 	}
 
 	if diff > 0 {
-		lastBytes, err := c.sentCache.ReadLastBytes(int(diff))
+		lastBytes, err := c.reuseBuffer.ReadLastBytes(int(diff))
 		if err != nil {
 			return err
 		}
@@ -390,36 +403,38 @@ func (c *Conn) serverHandshake() error {
 	return nil
 }
 
-func (c *Conn) Handshake() error {
-	if c.handshakeComplete {
-		return nil
+func (c *Conn) setConnErr(err error) {
+	if c.connErr == nil {
+		c.connErr = err
 	}
-
-	c.handshakeMutex.Lock()
-	defer c.handshakeMutex.Unlock()
-
-	if err := c.handshakeErr; err != nil {
-		return err
-	}
-	if c.handshakeComplete {
-		return nil
-	}
-
-	if c.config.ScpServer == nil {
-		c.handshakeErr = c.clientHandshake()
-	} else {
-		c.handshakeErr = c.serverHandshake()
-	}
-
-	if c.handshakeErr != nil {
-		return c.handshakeErr
-	}
-
-	c.handshakeComplete = true
-	return nil
 }
 
-// Write writes data to the connection and cache in sentCache
+// Handshake .
+func (c *Conn) Handshake() error {
+	// quick way
+	if c.handshaked && c.connErr == nil {
+		return nil
+	}
+
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	if c.handshaked || c.connErr != nil {
+		return c.connErr
+	}
+
+	var err error
+	if c.config.ScpServer == nil {
+		err = c.clientHandshake()
+	} else {
+		err = c.serverHandshake()
+	}
+
+	c.setConnErr(err)
+	c.handshaked = true
+	return err
+}
+
+// Write writes data to the connection and cache in reuseBuffer
 // even failed to write to the connection, the data should still be cached
 func (c *Conn) Write(b []byte) (int, error) {
 	if err := c.Handshake(); err != nil {
@@ -471,22 +486,73 @@ func (c *Conn) SetWriteDeadline(t time.Time) error {
 	return c.conn.SetWriteDeadline(t)
 }
 
-func (c *Conn) Close() error {
-	return c.conn.Close()
+func (c *Conn) freeze() {
+	if c.frozen {
+		return
+	}
+
+	err := c.conn.Close()
+	if err == nil {
+		err = errConnFrozen
+	}
+	c.setConnErr(err)
+	c.frozen = true
 }
 
+// IsFrozen indicates whether conn is frozen
+func (c *Conn) IsFrozen() bool {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	return c.frozen
+}
+
+// Freeze makes conn frozen, waiting for reuse
+func (c *Conn) Freeze() {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	c.freeze()
+}
+
+// IsClosed indicates whether conn is closed
+func (c *Conn) IsClosed() bool {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	return c.closed
+}
+
+// Close release all resources.
+func (c *Conn) Close() error {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	if c.closed {
+		return nil
+	}
+	c.freeze()
+
+	c.closed = true
+	if c.reuseBuffer != nil {
+		defaultLoopBufferPool.Put(c.reuseBuffer)
+		c.reuseBuffer = nil
+	}
+	return nil
+}
+
+// RawConn .
 func (c *Conn) RawConn() net.Conn {
 	return c.conn
 }
 
+// ID .
 func (c *Conn) ID() int {
 	return c.id
 }
 
+// IsReused .
 func (c *Conn) IsReused() bool {
 	return c.reused
 }
 
+// TargetServer .
 func (c *Conn) TargetServer() string {
 	return c.config.TargetServer
 }
