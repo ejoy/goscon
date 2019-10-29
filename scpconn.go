@@ -10,6 +10,7 @@ import (
 
 var errConnClosed = errors.New("conn closed")
 
+// SCPConn .
 type SCPConn struct {
 	*scp.Conn
 
@@ -97,19 +98,27 @@ func (s *SCPConn) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// Write until succeed or Conn is closed
 func (s *SCPConn) Write(p []byte) (int, error) {
-	err := s.lockIfNoError(&s.wr)
-	if err != nil {
-		return 0, err
-	}
-	defer s.wr.Unlock()
+	var nn int
+	for {
+		err := s.lockIfNoError(&s.wr)
+		if err != nil { // conn is closed
+			return 0, err
+		}
+		n, err := s.Conn.Write(p[nn:])
+		s.wr.Unlock()
 
-	n, err := s.Conn.Write(p)
-	if err != nil {
-		s.closeWrite()
-		s.setError(err)
+		if err != nil {
+			s.closeWrite()
+			s.setError(err)
+		}
+		nn = nn + n
+		if nn == len(p) {
+			break
+		}
 	}
-	return n, nil
+	return nn, nil
 }
 
 func (s *SCPConn) setClosed() {
@@ -124,17 +133,15 @@ func (s *SCPConn) setClosed() {
 	s.connCond.Broadcast()
 }
 
-// set new conn
+// SetConn .
 func (s *SCPConn) SetConn(conn *scp.Conn) bool {
-	s.connMutex.Lock()
-	defer s.connMutex.Unlock()
-	if s.connClosed {
-		return false
+	// check
+	if conn.ID() != s.Conn.ID() {
+		panic("conn.ID() != s.Conn.ID()")
 	}
 
-	if s.connErr == nil {
-		panic("s.connErr == nil")
-	}
+	// close old conn
+	s.Conn.Close()
 
 	// not reading
 	s.rd.Lock()
@@ -144,27 +151,18 @@ func (s *SCPConn) SetConn(conn *scp.Conn) bool {
 	s.wr.Lock()
 	s.wr.Unlock()
 
-	s.Conn.Close()
+	s.connMutex.Lock()
+	defer s.connMutex.Unlock()
+	if s.connClosed {
+		return false
+	}
 	s.Conn = conn
 	s.setErrorWithLocked(nil)
 	s.connCond.Broadcast()
 	return true
 }
 
-// close low-level conn and wait for reuse
-func (s *SCPConn) CloseForReuse() {
-	s.setError(errConnClosed)
-	s.Conn.Freeze()
-
-	// not reading
-	s.rd.Lock()
-	s.rd.Unlock()
-
-	// not writing
-	s.wr.Lock()
-	s.wr.Unlock()
-}
-
+// Close .
 func (s *SCPConn) Close() error {
 	s.setClosed()
 	return s.Conn.Close()
@@ -184,23 +182,27 @@ func (s *SCPConn) closeRead() error {
 	return s.Conn.Close()
 }
 
+// CloseRead .
 func (s *SCPConn) CloseRead() error {
 	s.setClosed()
 	return s.closeRead()
 }
 
+// CloseWrite .
 func (s *SCPConn) CloseWrite() error {
 	s.setClosed()
 	return s.closeWrite()
 }
 
+// RawConn .
 func (s *SCPConn) RawConn() *scp.Conn {
 	return s.Conn
 }
 
-func NewSCPConn(scon *scp.Conn, resueTimeout time.Duration) *SCPConn {
+// NewSCPConn .
+func NewSCPConn(scon *scp.Conn) *SCPConn {
 	scpConn := &SCPConn{Conn: scon}
 	scpConn.connCond = sync.NewCond(&scpConn.connMutex)
-	scpConn.reuseTimeout = resueTimeout
+	scpConn.reuseTimeout = configItemTime("scp.reuse_time")
 	return scpConn
 }
