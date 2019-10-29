@@ -4,16 +4,14 @@ import (
 	"bufio"
 	"crypto/rc4"
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/ejoy/goscon/dh64"
+	"github.com/golang/glog"
 )
-
-var errConnFrozen = errors.New("conn frozen")
 
 type cipherConnReader struct {
 	sync.Mutex
@@ -27,7 +25,6 @@ type cipherConnWriter struct {
 	wr     io.Writer
 	cipher *rc4.Cipher
 	count  int // bytes writed
-	buf    []byte
 }
 
 func genRC4Key(v1 leu64, v2 leu64, key []byte) {
@@ -72,14 +69,13 @@ func (c *cipherConnWriter) Write(b []byte) (int, error) {
 	defer c.Unlock()
 
 	sz := len(b)
-	if sz > cap(c.buf) {
-		c.buf = make([]byte, sz*2)
-	}
+	buf := defaultBufferPool.Get(sz)
+	defer defaultBufferPool.Put(buf)
 
-	buf := c.buf[:sz]
-	c.cipher.XORKeyStream(buf, b)
+	space := buf.Bytes()[:sz]
+	c.cipher.XORKeyStream(space, b)
 	c.count += sz
-	_, err := c.wr.Write(buf)
+	_, err := c.wr.Write(space)
 	return sz, err
 }
 
@@ -98,7 +94,10 @@ func deepCopyCipherConnWriter(out *cipherConnWriter) *cipherConnWriter {
 }
 
 func newCipherConnReader(secret leu64) *cipherConnReader {
-	key := make([]byte, 32)
+	b := defaultBufferPool.Get(32)
+	defer defaultBufferPool.Put(b)
+	key := b.Bytes()[:32]
+
 	genRC4Key(secret, toLeu64(0), key[0:8])
 	genRC4Key(secret, toLeu64(1), key[8:16])
 	genRC4Key(secret, toLeu64(2), key[16:24])
@@ -111,7 +110,10 @@ func newCipherConnReader(secret leu64) *cipherConnReader {
 }
 
 func newCipherConnWriter(secret leu64) *cipherConnWriter {
-	key := make([]byte, 32)
+	b := defaultBufferPool.Get(32)
+	defer defaultBufferPool.Put(b)
+	key := b.Bytes()[:32]
+
 	genRC4Key(secret, toLeu64(0), key[0:8])
 	genRC4Key(secret, toLeu64(1), key[8:16])
 	genRC4Key(secret, toLeu64(2), key[16:24])
@@ -120,7 +122,6 @@ func newCipherConnWriter(secret leu64) *cipherConnWriter {
 	c, _ := rc4.NewCipher(key)
 	return &cipherConnWriter{
 		cipher: c,
-		buf:    make([]byte, NetBufferSize),
 	}
 }
 
@@ -133,8 +134,7 @@ type Conn struct {
 	connMutex  sync.Mutex
 	connErr    error
 	handshaked bool // handshake finish flag
-	frozen     bool // if conn is frozen, can't make any change
-	closed     bool // if conn is closed, can't reuse
+	frozen     bool // if conn is frozen, read/write will failed immediately
 
 	// half conn
 	in  *cipherConnReader
@@ -163,20 +163,37 @@ func (c *Conn) initNewConn(id int, secret leu64) {
 	c.reused = false
 }
 
-func (c *Conn) initReuseConn(oldConn *Conn, handshakes int) {
-	c.id = oldConn.id
-	c.handshakes = handshakes
-	c.secret = oldConn.secret
+// copy status to new conn
+func (c *Conn) spawn(new *Conn) bool {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	c.freeze()
+
+	if c.reuseBuffer == nil { // c is closed
+		return false
+	}
+
+	// not reading
+	c.in.Lock()
+	c.in.Unlock()
+
+	// not writing
+	c.out.Lock()
+	c.out.Unlock()
+
+	new.id = c.id
+	new.secret = c.secret
 
 	reuseBuffer := defaultLoopBufferPool.Get()
-	oldConn.reuseBuffer.CopyTo(reuseBuffer)
-	c.reuseBuffer = reuseBuffer
-	c.in = deepCopyCipherConnReader(oldConn.in)
-	c.out = deepCopyCipherConnWriter(oldConn.out)
-	c.in.SetReader(c.conn)
-	c.out.SetWriter(io.MultiWriter(c.reuseBuffer, c.conn))
+	c.reuseBuffer.CopyTo(reuseBuffer)
+	new.reuseBuffer = reuseBuffer
+	new.in = deepCopyCipherConnReader(c.in)
+	new.out = deepCopyCipherConnWriter(c.out)
+	new.in.SetReader(new.conn)
+	new.out.SetWriter(io.MultiWriter(new.reuseBuffer, new.conn))
 
-	c.reused = true
+	new.reused = true
+	return true
 }
 
 func (c *Conn) writeRecord(msg handshakeMessage) error {
@@ -202,17 +219,15 @@ func (c *Conn) readRecord(msg handshakeMessage) error {
 		return err
 	}
 
-	buf := make([]byte, sz)
-	sum := 0
-	for sum < int(sz) {
-		n, err := c.conn.Read(buf[sum:])
-		if err != nil {
-			return err
-		}
-		sum += n
+	buf := defaultBufferPool.Get(int(sz))
+	defer defaultBufferPool.Put(buf)
+
+	b := buf.Bytes()[:sz]
+	if _, err := io.ReadFull(c.conn, b); err != nil {
+		return err
 	}
 
-	if err := msg.unmarshal(buf); err != nil {
+	if err := msg.unmarshal(b); err != nil {
 		return err
 	}
 	return nil
@@ -254,6 +269,10 @@ func (c *Conn) clientReuseHandshake() error {
 
 		if _, err = c.conn.Write(lastBytes); err != nil {
 			return err
+		}
+
+		if glog.V(2) {
+			glog.Infof("client retrans packets: addr=%s sz=%d", c.conn.LocalAddr(), diff)
 		}
 	}
 
@@ -319,27 +338,20 @@ OuterLoop:
 			rp.code = SCPStatusExpired
 			break OuterLoop
 		}
+		c.handshakes = rq.handshakes
 
-		// all check pass, close old
-		oldConn = c.config.ScpServer.CloseByID(rq.id)
-
-		// double check
-		if oldConn == nil || oldConn.IsClosed() {
+		// all check pass, spawn new conn
+		if !oldConn.spawn(c) {
 			rp.code = SCPStatusIDNotFound
 			break OuterLoop
 		}
 
-		// panic if conn is not frozen
-		if !oldConn.IsFrozen() {
-			panic("conn is not frozen")
-		}
-
-		diff = oldConn.out.GetBytesSent() - int(rq.received)
-		if diff < 0 || diff > oldConn.reuseBuffer.Len() {
+		diff = c.out.GetBytesSent() - int(rq.received)
+		if diff < 0 || diff > c.reuseBuffer.Len() {
 			rp.code = SCPStatusNotAcceptable
 			break OuterLoop
 		}
-		c.initReuseConn(oldConn, rq.handshakes)
+
 		rp.received = uint32(c.in.GetBytesReceived())
 		break OuterLoop
 	}
@@ -360,6 +372,10 @@ OuterLoop:
 
 		if _, err = c.conn.Write(lastBytes); err != nil {
 			return err
+		}
+
+		if glog.V(2) {
+			glog.Infof("server retrans packets: addr=%s sz=%d", c.conn.RemoteAddr(), diff)
 		}
 	}
 	return nil
@@ -411,14 +427,9 @@ func (c *Conn) setConnErr(err error) {
 
 // Handshake .
 func (c *Conn) Handshake() error {
-	// quick way
-	if c.handshaked && c.connErr == nil {
-		return nil
-	}
-
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
-	if c.handshaked || c.connErr != nil {
+	if c.handshaked {
 		return c.connErr
 	}
 
@@ -490,46 +501,21 @@ func (c *Conn) freeze() {
 	if c.frozen {
 		return
 	}
+	c.frozen = true
 
 	err := c.conn.Close()
 	if err == nil {
-		err = errConnFrozen
+		err = io.ErrClosedPipe
 	}
 	c.setConnErr(err)
-	c.frozen = true
 }
 
-// IsFrozen indicates whether conn is frozen
-func (c *Conn) IsFrozen() bool {
-	c.connMutex.Lock()
-	defer c.connMutex.Unlock()
-	return c.frozen
-}
-
-// Freeze makes conn frozen, waiting for reuse
-func (c *Conn) Freeze() {
-	c.connMutex.Lock()
-	defer c.connMutex.Unlock()
-	c.freeze()
-}
-
-// IsClosed indicates whether conn is closed
-func (c *Conn) IsClosed() bool {
-	c.connMutex.Lock()
-	defer c.connMutex.Unlock()
-	return c.closed
-}
-
-// Close release all resources.
+// Close closes raw conn and releases all resources. After close, c can't be reused.
 func (c *Conn) Close() error {
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
-	if c.closed {
-		return nil
-	}
 	c.freeze()
 
-	c.closed = true
 	if c.reuseBuffer != nil {
 		defaultLoopBufferPool.Put(c.reuseBuffer)
 		c.reuseBuffer = nil

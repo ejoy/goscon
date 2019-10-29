@@ -14,9 +14,6 @@ type SCPServer interface {
 
 	// query a conneciton by id
 	QueryByID(id int) *Conn
-
-	// close a conneciton by id, panic if conn is not frozen
-	CloseByID(id int) (conn *Conn)
 }
 
 type Config struct {
@@ -54,7 +51,8 @@ func Server(conn net.Conn, config *Config) *Conn {
 	return c
 }
 
-func Client(conn net.Conn, config *Config) *Conn {
+// Client wraps conn as scp.Conn
+func Client(conn net.Conn, config *Config) (*Conn, error) {
 	if config == nil {
 		config = defaultConfig
 	}
@@ -65,10 +63,10 @@ func Client(conn net.Conn, config *Config) *Conn {
 	}
 
 	if config.ConnForReused != nil {
-		if config.ConnForReused.id == 0 {
-			panic("config.ConnForReused.id == 0")
+		if !config.ConnForReused.spawn(c) {
+			return nil, ErrNotAcceptable
 		}
-		c.initReuseConn(config.ConnForReused, config.ConnForReused.handshakes+1)
+		c.handshakes = config.ConnForReused.handshakes + 1
 	}
-	return c
+	return c, nil
 }

@@ -97,19 +97,21 @@ type loopBufferPool struct {
 	pool sync.Pool
 }
 
-func (b *loopBufferPool) Get() *loopBuffer {
-	return b.pool.Get().(*loopBuffer)
+func (p *loopBufferPool) Get() *loopBuffer {
+	b := p.pool.Get().(*loopBuffer)
+	b.Reset()
+	return b
 }
 
 // if RueseBufferSize changes, invalidate all old buffer
-func (b *loopBufferPool) Put(v *loopBuffer) {
+func (p *loopBufferPool) Put(v *loopBuffer) {
 	if v.Cap() != RueseBufferSize {
 		return
 	}
-	b.pool.Put(v)
+	p.pool.Put(v)
 }
 
-func newBufferPool() *loopBufferPool {
+func newLoopBufferPool() *loopBufferPool {
 	return &loopBufferPool{
 		pool: sync.Pool{
 			New: func() interface{} {
@@ -122,5 +124,5 @@ func newBufferPool() *loopBufferPool {
 var defaultLoopBufferPool *loopBufferPool
 
 func init() {
-	defaultLoopBufferPool = newBufferPool()
+	defaultLoopBufferPool = newLoopBufferPool()
 }

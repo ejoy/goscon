@@ -27,16 +27,15 @@ func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error
 	buf := copyPool.Get().([]byte)
 	defer copyPool.Put(buf)
 
-	addr := src.RemoteAddr()
 	for {
 		nr, er := src.Read(buf)
 		if glog.V(2) {
-			glog.Infof("recv packet: tag=%s, addr=%s, sz=%d", tag, addr, nr)
+			glog.Infof("recv packet: tag=%s, addr=%s, sz=%d", tag, src.RemoteAddr(), nr)
 		}
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if glog.V(2) {
-				glog.Infof("send packet: tag=%s, addr=%s, sz=%d", tag, addr, nw)
+				glog.Infof("send packet: tag=%s, addr=%s, sz=%d", tag, dst.RemoteAddr(), nw)
 			}
 			if nw > 0 {
 				packets++
@@ -75,7 +74,7 @@ func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error
 }
 
 func (p *connPair) Pump() {
-	glog.Infof("connection pair new: id=%d, client=%s->%s, server=%s->%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(),
+	glog.Infof("pair new: id=%d, client=%s->%s, server=%s->%s", p.RemoteConn.ID(), p.RemoteConn.RemoteAddr(),
 		p.RemoteConn.LocalAddr(), p.LocalConn.LocalAddr(), p.LocalConn.RemoteAddr())
 	downloadCh := make(chan int)
 	uploadCh := make(chan int)
@@ -87,7 +86,7 @@ func (p *connPair) Pump() {
 	dlPackets := <-downloadCh
 	ulData := <-uploadCh
 	ulPackets := <-uploadCh
-	glog.Infof("connection pair remove: id=%d, client=%s, server=%s, down_bytes=%d, down_packets=%d), up_bytes=%d, up_packets=%d", p.RemoteConn.ID(),
+	glog.Infof("pair remove: id=%d, client=%s, server=%s, c2s=%d/%d, s2c=%d/%d", p.RemoteConn.ID(),
 		p.RemoteConn.RemoteAddr(), p.LocalConn.LocalAddr(), dlData, dlPackets, ulData, ulPackets)
 }
 
@@ -125,17 +124,6 @@ func (ss *SCPServer) QueryByID(id int) *scp.Conn {
 	return nil
 }
 
-// CloseByID implments scp.SCPServer interface
-func (ss *SCPServer) CloseByID(id int) *scp.Conn {
-	pair := ss.getConnPair(id)
-
-	if pair != nil {
-		pair.RemoteConn.CloseForReuse()
-		return pair.RemoteConn.RawConn()
-	}
-	return nil
-}
-
 // NumOfConnPairs .
 func (ss *SCPServer) NumOfConnPairs() int {
 	ss.connPairMutex.Lock()
@@ -147,7 +135,7 @@ func (ss *SCPServer) addConnPair(id int, pair *connPair) {
 	ss.connPairMutex.Lock()
 	defer ss.connPairMutex.Unlock()
 	if _, ok := ss.connPairs[id]; ok {
-		glog.Errorf("connection pair id conflict: id=%d", id)
+		glog.Errorf("pair id conflict: id=%d", id)
 		panic(id)
 	}
 	ss.connPairs[id] = pair
@@ -170,15 +158,15 @@ func (ss *SCPServer) onReuseConn(scon *scp.Conn) bool {
 	pair := ss.getConnPair(id)
 
 	if pair == nil {
-		glog.Errorf("connection pair reuse failed: id=%d, new_client=%s, err=no pair", id, scon.RemoteAddr())
+		glog.Errorf("pair reuse failed: id=%d, new_client=%s, err=no pair", id, scon.RemoteAddr())
 		return false
 	}
 	oldClientAddr := pair.RemoteConn.RemoteAddr()
 	if !pair.RemoteConn.SetConn(scon) {
-		glog.Errorf("connection pair reuse failed: id=%d, old_client=%s, new_client=%s, err=closed", id, oldClientAddr, scon.RemoteAddr())
+		glog.Errorf("pair reuse failed: id=%d, old_client=%s, new_client=%s, err=closed", id, oldClientAddr, scon.RemoteAddr())
 	}
 
-	glog.Infof("connection pair reuse: id=%d, old_client=%s, new_client=%s", id, oldClientAddr, scon.RemoteAddr())
+	glog.Infof("pair reuse: id=%d, old_client=%s, new_client=%s", id, oldClientAddr, scon.RemoteAddr())
 	return true
 }
 
@@ -187,7 +175,7 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) bool {
 	defer ss.ReleaseID(id)
 
 	connPair := &connPair{}
-	connPair.RemoteConn = NewSCPConn(scon, configItemTime("scp.reuse_time"))
+	connPair.RemoteConn = NewSCPConn(scon)
 
 	// hold conn pair for reuse
 	ss.addConnPair(id, connPair)
@@ -200,7 +188,7 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) bool {
 	}
 
 	connPair.LocalConn = localConn
-	go connPair.Pump()
+	connPair.Pump()
 	return true
 }
 
