@@ -20,6 +20,8 @@ type Host struct {
 	Addr   string
 	Weight int
 	Name   string
+
+	addr *net.TCPAddr
 }
 
 type hostGroup struct {
@@ -49,10 +51,10 @@ func (u *upstreams) chooseByWeight(group *hostGroup) *Host {
 }
 
 // UpdateHosts .
-func (u *upstreams) UpdateHosts(hosts []Host) {
+func (u *upstreams) UpdateHosts(hosts []Host) error {
 	sz := len(hosts)
 	if sz == 0 {
-		return
+		return ErrNoHost
 	}
 	allHosts := new(hostGroup)
 	allHosts.hosts = make([]*Host, 0, sz)
@@ -60,6 +62,11 @@ func (u *upstreams) UpdateHosts(hosts []Host) {
 
 	byNameHosts := make(map[string]*hostGroup)
 	for _, h := range hosts {
+		addr, err := net.ResolveTCPAddr("tcp", h.Addr)
+		if err != nil {
+			return err
+		}
+		h.addr = addr
 		if h.Weight <= 0 {
 			// set default weight
 			h.Weight = defaultWeight
@@ -80,6 +87,7 @@ func (u *upstreams) UpdateHosts(hosts []Host) {
 
 	u.allHosts.Store(allHosts)
 	u.byNameHosts.Store(byNameHosts)
+	return nil
 }
 
 // GetHostByWeight random choose a host by weight
@@ -113,7 +121,7 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 		return
 	}
 
-	conn, err = net.Dial("tcp", host.Addr)
+	conn, err = net.DialTCP("tcp", nil, host.addr)
 	if err != nil {
 		glog.Errorf("connect to <%s> failed: %s", host.Addr, err.Error())
 		return
@@ -130,6 +138,6 @@ func NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 }
 
 // UpdateHosts refresh backend hosts list
-func UpdateHosts(hosts []Host) {
-	defaultUpstreams.UpdateHosts(hosts)
+func UpdateHosts(hosts []Host) error {
+	return defaultUpstreams.UpdateHosts(hosts)
 }

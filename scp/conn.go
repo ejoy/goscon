@@ -271,7 +271,7 @@ func (c *Conn) clientReuseHandshake() error {
 			return err
 		}
 
-		if glog.V(2) {
+		if glog.V(1) {
 			glog.Infof("client retrans packets: addr=%s sz=%d", c.conn.LocalAddr(), diff)
 		}
 	}
@@ -374,7 +374,7 @@ OuterLoop:
 			return err
 		}
 
-		if glog.V(2) {
+		if glog.V(1) {
 			glog.Infof("server retrans packets: addr=%s sz=%d", c.conn.RemoteAddr(), diff)
 		}
 	}
@@ -510,6 +510,13 @@ func (c *Conn) freeze() {
 	c.setConnErr(err)
 }
 
+// Freeze make conn frozen, and wait for resue
+func (c *Conn) Freeze() {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	c.freeze()
+}
+
 // Close closes raw conn and releases all resources. After close, c can't be reused.
 func (c *Conn) Close() error {
 	c.connMutex.Lock()
@@ -521,11 +528,6 @@ func (c *Conn) Close() error {
 		c.reuseBuffer = nil
 	}
 	return nil
-}
-
-// RawConn .
-func (c *Conn) RawConn() net.Conn {
-	return c.conn
 }
 
 // ID .

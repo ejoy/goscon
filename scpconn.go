@@ -14,104 +14,105 @@ var errConnClosed = errors.New("conn closed")
 type SCPConn struct {
 	*scp.Conn
 
-	rd, wr sync.Mutex
-
 	connMutex  sync.Mutex
 	connCond   *sync.Cond
 	connErr    error // error when operate on conn
 	connClosed bool  // conn closed
 
+	// for reuse timeout
 	reuseCh      chan struct{}
 	reuseTimeout time.Duration
 }
 
-type closeWriter interface {
-	CloseWrite() error
-}
-
-type closeReader interface {
-	CloseRead() error
-}
-
-func (s *SCPConn) setErrorWithLocked(err error) {
+func (s *SCPConn) setConnError(conn *scp.Conn, err error) {
 	if err == nil {
-		if s.connErr != nil {
-			if s.reuseCh != nil {
-				close(s.reuseCh)
-				s.reuseCh = nil
-			}
-			s.connErr = nil
-		}
-	} else {
-		if s.connErr == nil {
-			if s.reuseCh != nil {
-				panic(s.reuseCh != nil)
-			}
-
-			s.reuseCh = make(chan struct{})
-			go func(reuseCh <-chan struct{}) {
-				select {
-				case <-time.After(s.reuseTimeout):
-					s.Close()
-				case <-reuseCh:
-				}
-			}(s.reuseCh)
-			s.connErr = err
-		}
+		return
 	}
-}
 
-func (s *SCPConn) setError(err error) {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
-	s.setErrorWithLocked(err)
+	if conn != s.Conn {
+		return
+	}
+
+	if s.connClosed {
+		return
+	}
+	s.connErr = err
 }
 
-func (s *SCPConn) lockIfNoError(mutex *sync.Mutex) error {
+// startWait 启动超时计数
+func (s *SCPConn) startWait() {
+	if s.reuseCh != nil {
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-time.After(s.reuseTimeout):
+			s.Close()
+		case <-done:
+		}
+	}()
+	s.reuseCh = done
+}
+
+// stopWait 停止超时计数
+func (s *SCPConn) stopWait() {
+	if s.reuseCh == nil {
+		return
+	}
+	close(s.reuseCh)
+	s.reuseCh = nil
+}
+
+func (s *SCPConn) acquireConn() (*scp.Conn, error) {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
 	for {
 		if s.connClosed {
-			return s.connErr
-		}
-		if s.connErr != nil {
+			return nil, s.connErr
+		} else if s.connErr != nil {
+			s.startWait()
 			s.connCond.Wait()
+			s.stopWait()
 		} else {
-			mutex.Lock()
-			return nil
+			return s.Conn, nil
 		}
 	}
 }
 
+// Read .
 func (s *SCPConn) Read(p []byte) (int, error) {
-	err := s.lockIfNoError(&s.rd)
+	conn, err := s.acquireConn()
 	if err != nil {
 		return 0, err
 	}
-	defer s.rd.Unlock()
 
-	n, err := s.Conn.Read(p)
+	n, err := conn.Read(p)
 	if err != nil {
-		s.closeRead()
-		s.setError(err)
+		// freeze, waiting for reuse
+		conn.Freeze()
+		s.setConnError(conn, err)
 	}
 	return n, nil
 }
 
-// Write until succeed or Conn is closed
+// Write returns until succeed or Conn is closed
 func (s *SCPConn) Write(p []byte) (int, error) {
 	var nn int
 	for {
-		err := s.lockIfNoError(&s.wr)
+		conn, err := s.acquireConn()
 		if err != nil { // conn is closed
 			return 0, err
 		}
-		n, err := s.Conn.Write(p[nn:])
-		s.wr.Unlock()
+		n, err := conn.Write(p[nn:])
 
 		if err != nil {
-			s.closeWrite()
-			s.setError(err)
+			// freeze, waiting for reuse
+			conn.Freeze()
+			s.setConnError(conn, err)
 		}
 		nn = nn + n
 		if nn == len(p) {
@@ -121,82 +122,37 @@ func (s *SCPConn) Write(p []byte) (int, error) {
 	return nn, nil
 }
 
-func (s *SCPConn) setClosed() {
-	s.connMutex.Lock()
-	defer s.connMutex.Unlock()
-	if s.connClosed {
-		return
-	}
-
-	s.connClosed = true
-	s.connErr = errConnClosed
-	s.connCond.Broadcast()
-}
-
-// SetConn .
-func (s *SCPConn) SetConn(conn *scp.Conn) bool {
-	// check
-	if conn.ID() != s.Conn.ID() {
-		panic("conn.ID() != s.Conn.ID()")
-	}
-
-	// close old conn
-	s.Conn.Close()
-
-	// not reading
-	s.rd.Lock()
-	s.rd.Unlock()
-
-	// not writing
-	s.wr.Lock()
-	s.wr.Unlock()
-
+// ReplaceConn .
+func (s *SCPConn) ReplaceConn(conn *scp.Conn) bool {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
 	if s.connClosed {
 		return false
 	}
+
+	// close old conn
+	s.Conn.Close()
+
+	// set new status
 	s.Conn = conn
-	s.setErrorWithLocked(nil)
+	s.connErr = nil
 	s.connCond.Broadcast()
 	return true
 }
 
 // Close .
 func (s *SCPConn) Close() error {
-	s.setClosed()
-	return s.Conn.Close()
-}
-
-func (s *SCPConn) closeWrite() error {
-	if tcpConn, ok := s.Conn.RawConn().(closeWriter); ok {
-		return tcpConn.CloseWrite()
+	s.connMutex.Lock()
+	defer s.connMutex.Unlock()
+	if s.connClosed {
+		return s.connErr
 	}
-	return s.Conn.Close()
-}
 
-func (s *SCPConn) closeRead() error {
-	if tcpConn, ok := s.Conn.RawConn().(closeReader); ok {
-		return tcpConn.CloseRead()
-	}
-	return s.Conn.Close()
-}
-
-// CloseRead .
-func (s *SCPConn) CloseRead() error {
-	s.setClosed()
-	return s.closeRead()
-}
-
-// CloseWrite .
-func (s *SCPConn) CloseWrite() error {
-	s.setClosed()
-	return s.closeWrite()
-}
-
-// RawConn .
-func (s *SCPConn) RawConn() *scp.Conn {
-	return s.Conn
+	s.connClosed = true
+	s.connErr = errConnClosed
+	err := s.Conn.Close()
+	s.connCond.Broadcast()
+	return err
 }
 
 // NewSCPConn .
