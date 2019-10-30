@@ -100,7 +100,11 @@ func reloadConfig() (err error) {
 		glog.Errorf("unmarshal hosts failed: %s", err.Error())
 		return err
 	}
-	upstream.UpdateHosts(hosts)
+
+	if err = upstream.UpdateHosts(hosts); err != nil {
+		glog.Errorf("update hosts failed: %s", err.Error())
+		return err
+	}
 
 	// update scp
 	reuseBuffer := viper.GetInt("scp.reuse_buffer")

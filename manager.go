@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"github.com/golang/glog"
+	"github.com/xtaci/kcp-go"
 )
 
 func startManager(laddr string) (err error) {
@@ -39,11 +40,19 @@ func startManager(laddr string) (err error) {
 		w.Header().Add("Content-Type", "application/json")
 		status := make(map[string]interface{})
 		status["procs"] = runtime.GOMAXPROCS(0)
-		status["num_of_cpu"] = runtime.NumCPU()
+		status["numOfCPU"] = runtime.NumCPU()
 		status["goroutines"] = runtime.NumGoroutine()
-		status["pairs"] = defaultServer.NumOfConnPairs()
+
+		defaultServer.Status(status)
+
 		enc := json.NewEncoder(w)
 		enc.Encode(status)
+	})
+
+	http.HandleFunc("/kcp/snmp", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
+		enc.Encode(kcp.DefaultSnmp.Copy())
 	})
 
 	go func() {

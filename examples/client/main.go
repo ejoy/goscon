@@ -218,6 +218,10 @@ func main() {
 	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
 	flag.Parse()
 
+	if optMinPacket > optMaxPacket {
+		optMinPacket, optMaxPacket = optMaxPacket, optMinPacket
+	}
+
 	args := flag.Args()
 
 	if len(args) > 0 && args[0] == "kcp" {

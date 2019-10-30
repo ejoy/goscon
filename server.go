@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ejoy/goscon/scp"
@@ -21,7 +22,7 @@ type connPair struct {
 	RemoteConn *SCPConn // client <-> scp server
 }
 
-func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
+func pump(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
 	var err error
 	var written, packets int
 	buf := copyPool.Get().([]byte)
@@ -30,12 +31,12 @@ func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error
 	for {
 		nr, er := src.Read(buf)
 		if glog.V(2) {
-			glog.Infof("recv packet: tag=%s, addr=%s, sz=%d", tag, src.RemoteAddr(), nr)
+			glog.Infof("recv packet: tag=%s, addr=%s, sz=%d, err=%v", tag, src.RemoteAddr(), nr, er)
 		}
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if glog.V(2) {
-				glog.Infof("send packet: tag=%s, addr=%s, sz=%d", tag, dst.RemoteAddr(), nw)
+				glog.Infof("send packet: tag=%s, addr=%s, sz=%d, err=%v", tag, dst.RemoteAddr(), nw, ew)
 			}
 			if nw > 0 {
 				packets++
@@ -53,20 +54,11 @@ func copyUntilError(tag string, dst net.Conn, src net.Conn, ch chan<- int) error
 	}
 
 	if glog.V(1) {
-		glog.Infof("copyUntilError return: tag=%s err=%v", tag, err)
+		glog.Infof("pair pump: tag=%s, addr1=%s, addr2=%s, err=%v", tag, src.RemoteAddr(), dst.RemoteAddr(), err)
 	}
 
-	if halfConn, ok := src.(closeReader); ok {
-		halfConn.CloseRead()
-	} else {
-		src.Close()
-	}
-
-	if halfConn, ok := dst.(closeWriter); ok {
-		halfConn.CloseWrite()
-	} else {
-		dst.Close()
-	}
+	src.Close()
+	dst.Close()
 
 	ch <- written
 	ch <- packets
@@ -79,8 +71,8 @@ func (p *connPair) Pump() {
 	downloadCh := make(chan int)
 	uploadCh := make(chan int)
 
-	go copyUntilError("c2s", p.LocalConn, p.RemoteConn, downloadCh)
-	go copyUntilError("s2c", p.RemoteConn, p.LocalConn, uploadCh)
+	go pump("c2s", p.LocalConn, p.RemoteConn, downloadCh)
+	go pump("s2c", p.RemoteConn, p.LocalConn, uploadCh)
 
 	dlData := <-downloadCh
 	dlPackets := <-downloadCh
@@ -96,6 +88,9 @@ type SCPServer struct {
 
 	connPairMutex sync.Mutex
 	connPairs     map[int]*connPair
+
+	clientOpens  uint64 // count of client connect
+	clientCloses uint64 // count of client disconnect
 }
 
 var defaultServer = &SCPServer{
@@ -119,15 +114,19 @@ func (ss *SCPServer) QueryByID(id int) *scp.Conn {
 	defer ss.connPairMutex.Unlock()
 	pair := ss.connPairs[id]
 	if pair != nil {
-		return pair.RemoteConn.RawConn()
+		return pair.RemoteConn.Conn
 	}
 	return nil
 }
 
-// NumOfConnPairs .
-func (ss *SCPServer) NumOfConnPairs() int {
+// Status .
+func (ss *SCPServer) Status(o map[string]interface{}) int {
 	ss.connPairMutex.Lock()
-	defer ss.connPairMutex.Unlock()
+	o["pairs"] = len(ss.connPairs)
+	ss.connPairMutex.Unlock()
+
+	o["clientOpens"] = atomic.LoadUint64(&ss.clientOpens)
+	o["clientCloses"] = atomic.LoadUint64(&ss.clientCloses)
 	return len(ss.connPairs)
 }
 
@@ -161,9 +160,11 @@ func (ss *SCPServer) onReuseConn(scon *scp.Conn) bool {
 		glog.Errorf("pair reuse failed: id=%d, new_client=%s, err=no pair", id, scon.RemoteAddr())
 		return false
 	}
+
 	oldClientAddr := pair.RemoteConn.RemoteAddr()
-	if !pair.RemoteConn.SetConn(scon) {
+	if !pair.RemoteConn.ReplaceConn(scon) {
 		glog.Errorf("pair reuse failed: id=%d, old_client=%s, new_client=%s, err=closed", id, oldClientAddr, scon.RemoteAddr())
+		return false
 	}
 
 	glog.Infof("pair reuse: id=%d, old_client=%s, new_client=%s", id, oldClientAddr, scon.RemoteAddr())
@@ -199,6 +200,8 @@ func (ss *SCPServer) handleConn(conn net.Conn) {
 			glog.Errorf("stacks: %s", stacks(false))
 		}
 	}()
+	atomic.AddUint64(&ss.clientOpens, 1)
+	defer atomic.AddUint64(&ss.clientCloses, 1)
 
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 
@@ -206,10 +209,15 @@ func (ss *SCPServer) handleConn(conn net.Conn) {
 	handshakeTimeout := configItemTime("scp.handshake_timeout")
 	if handshakeTimeout > 0 {
 		scon.SetDeadline(time.Now().Add(handshakeTimeout))
-		defer scon.SetDeadline(zeroTime)
 	}
 
-	if err := scon.Handshake(); err != nil {
+	err := scon.Handshake()
+
+	if handshakeTimeout > 0 {
+		scon.SetDeadline(zeroTime)
+	}
+
+	if err != nil {
 		glog.Errorf("scp handshake faield: client=%s, err=%s", conn.RemoteAddr().String(), err.Error())
 		scon.Close()
 		return
@@ -253,7 +261,7 @@ func (ss *SCPServer) Serve(l net.Listener) error {
 		}
 		tempDelay = 0
 		if glog.V(1) {
-			glog.Infof("accept new connection: listen=%s, client=%s", addr, conn.RemoteAddr().String())
+			glog.Infof("accept new connection: client=%s", conn.RemoteAddr())
 		}
 		go ss.handleConn(conn)
 	}

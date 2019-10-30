@@ -42,7 +42,7 @@ func (l *TCPListener) Accept() (conn net.Conn, err error) {
 	t := c.(*net.TCPConn)
 	t.SetKeepAlive(keepalive)
 	t.SetKeepAlivePeriod(keepaliveInterval)
-	t.SetLinger(0)
+	// t.SetLinger(0)
 
 	conn = tcpConn{t, readTimeout}
 	return
