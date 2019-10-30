@@ -46,7 +46,7 @@ go build -mod=vendor
 
 * run
 ```bash
-./goscon  -alsologtostderr -v 10 -config config.yaml
+./goscon -v 10 -config config.yaml
 ```
 
 * test
@@ -75,3 +75,15 @@ go build -mod=vendor ./examples/client
 ```
 ./client.exe kcp
 ```
+
+## maintenance
+
+可以通过默认开启的管理端口`http://localhost:6220`进行配置热更新，查看内部状态。
+
+* 热更新配置
+    - 修改配置文件
+    - 访问: `http://localhost:6220/reload`
+* 查看内部状态
+    - 当前配置：`http://localhost:6220/config`
+    - 状态: `http://localhost:6220/status`
+    - kcp snmp: `http://localhost:6220/kcp/snmp`
