@@ -48,7 +48,8 @@ func init() {
 	viper.SetDefault("kcp_option.opt_resend", 2)    // kcp opt_interval: 2,  快速重换模式，比如 2 表示：2 次 ACK 跨越直接重传
 	viper.SetDefault("kcp_option.opt_nc", 1)        // kcp opt_nc: 1, 是否关闭拥塞控制，0-开启，1-关闭
 	viper.SetDefault("kcp_option.opt_sndwnd", 2048) // kcp opt_sndwnd: 2048 byte, kcp连接的发送窗口
-	viper.SetDefault("kcp_option.opt_rcvwnd", 2048) // kcp opt_sndwnd: 2048 byte, kcp连接的接收窗口
+	viper.SetDefault("kcp_option.opt_rcvwnd", 2048) // kcp opt_rcvwnd: 2048 byte, kcp连接的接收窗口
+	viper.SetDefault("kcp_option.opt_stream", true) // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
 
 	configCache = make(map[string]interface{})
 }

@@ -77,10 +77,12 @@ func (l *KCPListener) Accept() (net.Conn, error) {
 	nc := configItemInt("kcp_option.opt_nc")
 	sndwnd := configItemInt("kcp_option.opt_sndwnd")
 	rcvwnd := configItemInt("kcp_option.opt_rcvwnd")
+	stream := configItemBool("kcp_option.opt_stream")
+
 	conn.SetMtu(mtu)
 	conn.SetWindowSize(sndwnd, rcvwnd)
 	conn.SetNoDelay(nodelay, interval, resend, nc)
-	conn.SetStreamMode(true)
+	conn.SetStreamMode(stream)
 
 	readTimeout := configItemTime("kcp_option.read_timeout")
 	return &kcpConn{conn, readTimeout}, err

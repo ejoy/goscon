@@ -23,6 +23,7 @@ kcp_option:
   opt_nc: 1
   opt_sndwnd: 2048
   opt_rcvwnd: 2048
+  opt_stream: true
 hosts:
   - name: test1
     addr: 127.0.0.1:11248
