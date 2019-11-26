@@ -42,14 +42,15 @@ func init() {
 	viper.SetDefault("kcp_option.write_buffer", 4194304) // kcp write_buffer: 4M, udp socket 的 SND_BUF，单位为字节，默认为 4M
 
 	// kcp protocol configure, refer to: https://github.com/skywind3000/kcp/blob/master/README.en.md#protocol-configuration
-	viper.SetDefault("kcp_option.opt_mtu", 1400)    // kcp mtu: 1400, 最大传输单元
-	viper.SetDefault("kcp_option.opt_nodelay", 1)   // kcp opt_nodelay: 1, 是否启用 nodelay 模式
-	viper.SetDefault("kcp_option.opt_interval", 10) // kcp opt_interval: 10ms, kcp 调用 update 的时间间隔，单位是毫秒
-	viper.SetDefault("kcp_option.opt_resend", 2)    // kcp opt_interval: 2,  快速重换模式，比如 2 表示：2 次 ACK 跨越直接重传
-	viper.SetDefault("kcp_option.opt_nc", 1)        // kcp opt_nc: 1, 是否关闭拥塞控制，0-开启，1-关闭
-	viper.SetDefault("kcp_option.opt_sndwnd", 2048) // kcp opt_sndwnd: 2048 byte, kcp连接的发送窗口
-	viper.SetDefault("kcp_option.opt_rcvwnd", 2048) // kcp opt_rcvwnd: 2048 byte, kcp连接的接收窗口
-	viper.SetDefault("kcp_option.opt_stream", true) // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
+	viper.SetDefault("kcp_option.opt_mtu", 1400)         // kcp mtu: 1400, 最大传输单元
+	viper.SetDefault("kcp_option.opt_nodelay", 1)        // kcp opt_nodelay: 1, 是否启用 nodelay 模式
+	viper.SetDefault("kcp_option.opt_interval", 10)      // kcp opt_interval: 10ms, kcp 调用 update 的时间间隔，单位是毫秒
+	viper.SetDefault("kcp_option.opt_resend", 2)         // kcp opt_interval: 2,  快速重换模式，比如 2 表示：2 次 ACK 跨越直接重传
+	viper.SetDefault("kcp_option.opt_nc", 1)             // kcp opt_nc: 1, 是否关闭拥塞控制，0-开启，1-关闭
+	viper.SetDefault("kcp_option.opt_sndwnd", 2048)      // kcp opt_sndwnd: 2048 byte, kcp连接的发送窗口
+	viper.SetDefault("kcp_option.opt_rcvwnd", 2048)      // kcp opt_rcvwnd: 2048 byte, kcp连接的接收窗口
+	viper.SetDefault("kcp_option.opt_stream", true)      // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
+	viper.SetDefault("kcp_option.opt_writedelay", false) // kcp opt_writedelay: false, 延迟到下次interval发送数据
 
 	configCache = make(map[string]interface{})
 }
