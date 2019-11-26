@@ -46,7 +46,7 @@ go build -mod=vendor
 
 * run
 ```bash
-./goscon -v 10 -config config.yaml
+./goscon -logtostderr -v 10 -config config.yaml
 ```
 
 * test
@@ -67,7 +67,7 @@ go build -mod=vendor ./examples/client
 - 测试 tcp
 
 ```
-./client.exe
+./client.exe -packets 10 -concurrent 100 -rounds 100
 ```
 
 - 测试 kcp
