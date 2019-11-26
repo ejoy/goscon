@@ -22,7 +22,7 @@ type connPair struct {
 	RemoteConn *SCPConn // client <-> scp server
 }
 
-func pump(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
+func pump(id int, tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
 	var err error
 	var written, packets int
 	buf := copyPool.Get().([]byte)
@@ -31,12 +31,12 @@ func pump(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
 	for {
 		nr, er := src.Read(buf)
 		if glog.V(2) {
-			glog.Infof("recv packet: tag=%s, addr=%s, sz=%d, err=%v", tag, src.RemoteAddr(), nr, er)
+			glog.Infof("recv packet: id=%d, tag=%s, addr=%s, sz=%d, err=%v", id, tag, src.RemoteAddr(), nr, er)
 		}
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if glog.V(2) {
-				glog.Infof("send packet: tag=%s, addr=%s, sz=%d, err=%v", tag, dst.RemoteAddr(), nw, ew)
+				glog.Infof("send packet: id=%d, tag=%s, addr=%s, sz=%d, err=%v", id, tag, dst.RemoteAddr(), nw, ew)
 			}
 			if nw > 0 {
 				packets++
@@ -54,7 +54,7 @@ func pump(tag string, dst net.Conn, src net.Conn, ch chan<- int) error {
 	}
 
 	if glog.V(1) {
-		glog.Infof("pair pump: tag=%s, addr1=%s, addr2=%s, err=%v", tag, src.RemoteAddr(), dst.RemoteAddr(), err)
+		glog.Infof("pair pump: id=%d, tag=%s, addr1=%s, addr2=%s, err=%v", id, tag, src.RemoteAddr(), dst.RemoteAddr(), err)
 	}
 
 	src.Close()
@@ -71,8 +71,8 @@ func (p *connPair) Pump() {
 	downloadCh := make(chan int)
 	uploadCh := make(chan int)
 
-	go pump("c2s", p.LocalConn, p.RemoteConn, downloadCh)
-	go pump("s2c", p.RemoteConn, p.LocalConn, uploadCh)
+	go pump(p.RemoteConn.ID(), "c2s", p.LocalConn, p.RemoteConn, downloadCh)
+	go pump(p.RemoteConn.ID(), "s2c", p.RemoteConn, p.LocalConn, uploadCh)
 
 	dlData := <-downloadCh
 	dlPackets := <-downloadCh
