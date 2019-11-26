@@ -333,6 +333,11 @@ func (s *UDPSession) WriteBuffers(v [][]byte) (n int, err error) {
 func (s *UDPSession) uncork() {
 	if len(s.txqueue) > 0 {
 		s.tx(s.txqueue)
+		// recycle
+		for k := range s.txqueue {
+			xmitBuf.Put(s.txqueue[k].Buffers[0])
+			s.txqueue[k].Buffers = nil
+		}
 		s.txqueue = s.txqueue[:0]
 	}
 	return
@@ -348,6 +353,17 @@ func (s *UDPSession) Close() error {
 
 	if once {
 		atomic.AddUint64(&DefaultSnmp.CurrEstab, ^uint64(0))
+
+		// try best to send all queued messages
+		s.mu.Lock()
+		s.kcp.flush(false)
+		s.uncork()
+		// release pending segments
+		s.kcp.ReleaseTX()
+		if s.fecDecoder != nil {
+			s.fecDecoder.release()
+		}
+		s.mu.Unlock()
 
 		if s.l != nil { // belongs to listener
 			s.l.closeSession(s.remote)
@@ -647,9 +663,10 @@ func (s *UDPSession) kcpInput(data []byte) {
 				if f.flag() == typeParity {
 					fecParityShards++
 				}
-				recovers := s.fecDecoder.decode(f)
 
+				// lock
 				s.mu.Lock()
+				recovers := s.fecDecoder.decode(f)
 				if f.flag() == typeData {
 					if ret := s.kcp.Input(data[fecHeaderSizePlus2:], true, s.ackNoDelay); ret != 0 {
 						kcpInErrors++

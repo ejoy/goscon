@@ -46,7 +46,7 @@ github.com/tjfoc/gmsm/sm4
 github.com/xjdrew/glog
 # github.com/xjdrew/gosproto v0.1.0
 github.com/xjdrew/gosproto
-# github.com/xtaci/kcp-go v5.4.11+incompatible
+# github.com/xtaci/kcp-go v5.4.19+incompatible
 github.com/xtaci/kcp-go
 # golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550
 golang.org/x/crypto/blowfish
