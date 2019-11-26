@@ -5,7 +5,7 @@ package main
 import (
 	_ "net/http/pprof"
 
-	"github.com/golang/glog"
+	"github.com/xjdrew/glog"
 )
 
 func init() {

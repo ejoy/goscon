@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/ejoy/goscon/scp"
-	"github.com/golang/glog"
+	"github.com/xjdrew/glog"
 )
 
 // ErrNoHost .

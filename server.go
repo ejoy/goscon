@@ -8,7 +8,7 @@ import (
 
 	"github.com/ejoy/goscon/scp"
 	"github.com/ejoy/goscon/upstream"
-	"github.com/golang/glog"
+	"github.com/xjdrew/glog"
 )
 
 var copyPool = sync.Pool{

@@ -5,8 +5,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/libp2p/go-reuseport"
+	"github.com/xjdrew/glog"
 	"github.com/xtaci/kcp-go"
 )
 

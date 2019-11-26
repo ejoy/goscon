@@ -1,7 +1,5 @@
 # github.com/fsnotify/fsnotify v1.4.7
 github.com/fsnotify/fsnotify
-# github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
-github.com/golang/glog
 # github.com/hashicorp/hcl v1.0.0
 github.com/hashicorp/hcl
 github.com/hashicorp/hcl/hcl/ast
@@ -44,6 +42,8 @@ github.com/templexxx/cpufeat
 github.com/templexxx/xor
 # github.com/tjfoc/gmsm v1.0.1
 github.com/tjfoc/gmsm/sm4
+# github.com/xjdrew/glog v0.0.0-20191120014404-9a6d6b19a763
+github.com/xjdrew/glog
 # github.com/xjdrew/gosproto v0.1.0
 github.com/xjdrew/gosproto
 # github.com/xtaci/kcp-go v5.4.11+incompatible

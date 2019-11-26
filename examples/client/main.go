@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/ejoy/goscon/scp"
-	"github.com/golang/glog"
+	"github.com/xjdrew/glog"
 	"github.com/xtaci/kcp-go"
 )
 
