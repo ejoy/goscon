@@ -10,7 +10,6 @@ tcp_option:
   keepalive: true
   keepalive_interval: 60
 kcp_option:
-  reuseport: 0
   read_timeout: 60
   fec_data_shards: 0
   fec_parity_shards: 0

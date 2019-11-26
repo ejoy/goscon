@@ -685,24 +685,29 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		if alsoToStderr || l.alsoToStderr || s >= l.stderrThreshold.get() {
 			os.Stderr.Write(data)
 		}
+
+		var err error
 		if l.file[s] == nil {
-			if err := l.createFiles(s); err != nil {
-				os.Stderr.Write(data) // Make sure the message appears somewhere.
-				l.exit(err)
-			}
+			err = l.createFiles(s)
 		}
-		switch s {
-		case fatalLog:
-			l.file[fatalLog].Write(data)
-			fallthrough
-		case errorLog:
-			l.file[errorLog].Write(data)
-			fallthrough
-		case warningLog:
-			l.file[warningLog].Write(data)
-			fallthrough
-		case infoLog:
-			l.file[infoLog].Write(data)
+
+		if err != nil {
+			os.Stderr.Write(data) // Make sure the message appears somewhere.
+			fmt.Fprintf(os.Stderr, "log: create log file failed: %s\n", err)
+		} else {
+			switch s {
+			case fatalLog:
+				l.file[fatalLog].Write(data)
+				fallthrough
+			case errorLog:
+				l.file[errorLog].Write(data)
+				fallthrough
+			case warningLog:
+				l.file[warningLog].Write(data)
+				fallthrough
+			case infoLog:
+				l.file[infoLog].Write(data)
+			}
 		}
 	}
 	if s == fatalLog {
@@ -721,7 +726,6 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		}
 		// Write the stack trace for all goroutines to the files.
 		trace := stacks(true)
-		logExitFunc = func(error) {} // If we get a write error, we'll still exit below.
 		for log := fatalLog; log >= infoLog; log-- {
 			if f := l.file[log]; f != nil { // Can be nil if -logtostderr is set.
 				f.Write(trace)
@@ -775,26 +779,6 @@ func stacks(all bool) []byte {
 	return trace
 }
 
-// logExitFunc provides a simple mechanism to override the default behavior
-// of exiting on error. Used in testing and to guarantee we reach a required exit
-// for fatal logs. Instead, exit could be a function rather than a method but that
-// would make its use clumsier.
-var logExitFunc func(error)
-
-// exit is called if there is trouble creating or writing log files.
-// It flushes the logs and exits the program; there's no point in hanging around.
-// l.mu is held.
-func (l *loggingT) exit(err error) {
-	fmt.Fprintf(os.Stderr, "log: exiting because of error: %s\n", err)
-	// If logExitFunc is set, we do that instead of exiting.
-	if logExitFunc != nil {
-		logExitFunc(err)
-		return
-	}
-	l.flushAll()
-	os.Exit(2)
-}
-
 // syncBuffer joins a bufio.Writer to its underlying file, providing access to the
 // file's Sync method and providing a wrapper for the Write method that provides log
 // file rotation. There are conflicting methods, so the file cannot be embedded.
@@ -813,14 +797,17 @@ func (sb *syncBuffer) Sync() error {
 
 func (sb *syncBuffer) Write(p []byte) (n int, err error) {
 	if sb.nbytes+uint64(len(p)) >= MaxSize {
-		if err := sb.rotateFile(time.Now()); err != nil {
-			sb.logger.exit(err)
+		if rerr := sb.rotateFile(time.Now()); rerr != nil {
+			os.Stderr.Write(p) // Make sure the message appears somewhere.
+			fmt.Fprintf(os.Stderr, "log: rotate log file failed: %v\n", rerr)
+			return
 		}
 	}
-	n, err = sb.Writer.Write(p)
+	n, werr := sb.Writer.Write(p)
 	sb.nbytes += uint64(n)
-	if err != nil {
-		sb.logger.exit(err)
+	if werr != nil {
+		os.Stderr.Write(p) // Make sure the message appears somewhere.
+		fmt.Fprintf(os.Stderr, "log: write log file failed: %v\n", werr)
 	}
 	return
 }
@@ -879,7 +866,7 @@ const flushInterval = 30 * time.Second
 
 // flushDaemon periodically flushes the log file buffers.
 func (l *loggingT) flushDaemon() {
-	for _ = range time.NewTicker(flushInterval).C {
+	for range time.NewTicker(flushInterval).C {
 		l.lockAndFlushAll()
 	}
 }

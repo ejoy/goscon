@@ -4,7 +4,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/golang/glog"
+	"github.com/xjdrew/glog"
 )
 
 type tcpConn struct {

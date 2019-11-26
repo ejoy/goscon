@@ -8,8 +8,8 @@ import (
 
 	"github.com/ejoy/goscon/scp"
 	"github.com/ejoy/goscon/upstream"
-	"github.com/golang/glog"
 	"github.com/spf13/viper"
+	"github.com/xjdrew/glog"
 	yaml "gopkg.in/yaml.v2"
 )
 

@@ -12,8 +12,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/golang/glog"
 	"github.com/spf13/viper"
+	"github.com/xjdrew/glog"
 )
 
 // log rule:
@@ -33,7 +33,6 @@ func testConfigFile(filename string) error {
 func main() {
 	// set default log directory
 	flag.Set("log_dir", "./")
-	flag.Set("logtostderr", "true")
 
 	showVersion := flag.Bool("version", false, "show version and exit")
 	testConfig := flag.Bool("t", false, "test configuration and exit")

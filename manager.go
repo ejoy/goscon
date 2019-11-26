@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"runtime"
 
-	"github.com/golang/glog"
+	"github.com/xjdrew/glog"
 	"github.com/xtaci/kcp-go"
 )
 

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ejoy/goscon/dh64"
-	"github.com/golang/glog"
+	"github.com/xjdrew/glog"
 )
 
 type cipherConnReader struct {
