@@ -8,6 +8,8 @@ import (
 	"io"
 	mrand "math/rand"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"time"
 
@@ -243,6 +245,16 @@ func main() {
 		ch <- true
 		return
 	}
+
+	go func() {
+		ln, err := net.Listen("tcp", ":0")
+		if err != nil {
+			glog.Errorf("listen failed: err=%v", err)
+			return
+		}
+		glog.Infof("http listen: %s", ln.Addr())
+		http.Serve(ln, nil)
+	}()
 
 	if optConnect != "" {
 		glog.Info("run as echo client")
