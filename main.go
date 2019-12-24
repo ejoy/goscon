@@ -22,8 +22,9 @@ import (
 // 1, connection related, 跟连接相关的日志， 一般每条连接在生命周期内产生x条
 // 2, packet releated, 跟包相关的日志，一般每个packet都会产生数条日志
 
-// 1.0.0: 2019-10-18, 重写goscon的配置方式
-var _Version = "1.0.0"
+// <2019-10-18> 1.0.0: 重写goscon的配置方式
+// <2019-12-24> 1.1.0: 优化内部设计，提升kcp可靠性等
+var _Version = "1.1.0"
 
 func testConfigFile(filename string) error {
 	viper.SetConfigFile(filename)

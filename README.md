@@ -61,19 +61,19 @@ go build -mod=vendor ./examples/client
 - 启动服务端
 
 ```bash
-./client.exe -startEchoServer :11248
+./client -startEchoServer :11248
 ```
 
 - 测试 tcp
 
 ```
-./client.exe -packets 10 -concurrent 100 -rounds 100
+./client -packets 10 -concurrent 100 -rounds 100
 ```
 
 - 测试 kcp
 
 ```
-./client.exe kcp
+./client kcp
 ```
 
 ## maintenance
