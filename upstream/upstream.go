@@ -61,7 +61,8 @@ func (u *upstreams) UpdateHosts(hosts []Host) error {
 	allHosts.weight = 0
 
 	byNameHosts := make(map[string]*hostGroup)
-	for _, h := range hosts {
+	for _, host := range hosts {
+		h := host
 		addr, err := net.ResolveTCPAddr("tcp", h.Addr)
 		if err != nil {
 			return err
