@@ -26,4 +26,4 @@ kcp_option:
 hosts:
   - name: test1
     addr: 127.0.0.1:11248
-    weigh: 100
+    weight: 100
