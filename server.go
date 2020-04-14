@@ -192,16 +192,15 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) bool {
 }
 
 func (ss *SCPServer) handleConn(conn net.Conn) {
-	defer func() {
-		conn.Close()
-		connectionCloses.Inc()
+	connectionAccepts.Inc()
 
+	defer func() {
+		connectionCloses.Inc()
 		if err := recover(); err != nil {
 			glog.Errorf("goroutine failed:%v", err)
 			glog.Errorf("stacks: %s", stacks(false))
 		}
 	}()
-	connectionAccepts.Inc()
 
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 
@@ -262,6 +261,7 @@ func (ss *SCPServer) Serve(l net.Listener) error {
 		if glog.V(1) {
 			glog.Infof("accept new connection: client=%s", conn.RemoteAddr())
 		}
+
 		go ss.handleConn(conn)
 	}
 }
