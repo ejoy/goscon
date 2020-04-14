@@ -5,8 +5,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"runtime"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/xjdrew/glog"
 	"github.com/xtaci/kcp-go"
 )
@@ -36,24 +36,13 @@ func startManager(laddr string) (err error) {
 		}
 	})
 
-	http.HandleFunc("/status", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Add("Content-Type", "application/json")
-		status := make(map[string]interface{})
-		status["procs"] = runtime.GOMAXPROCS(0)
-		status["numOfCPU"] = runtime.NumCPU()
-		status["goroutines"] = runtime.NumGoroutine()
-
-		defaultServer.Status(status)
-
-		enc := json.NewEncoder(w)
-		enc.Encode(status)
-	})
-
 	http.HandleFunc("/kcp/snmp", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
 		enc := json.NewEncoder(w)
 		enc.Encode(kcp.DefaultSnmp.Copy())
 	})
+
+	http.Handle("/metrics", promhttp.Handler())
 
 	go func() {
 		defer ln.Close()

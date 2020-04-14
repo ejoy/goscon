@@ -148,6 +148,7 @@ type Conn struct {
 	reuseBuffer *loopBuffer
 
 	reused bool // reused conn
+	resend int  // resend data length
 }
 
 func (c *Conn) initNewConn(id int, secret leu64) {
@@ -274,6 +275,7 @@ func (c *Conn) clientReuseHandshake() error {
 		if glog.V(1) {
 			glog.Infof("client retrans packets: addr=%s sz=%d", c.conn.LocalAddr(), diff)
 		}
+		c.resend = diff
 	}
 
 	return nil
@@ -377,6 +379,7 @@ OuterLoop:
 		if glog.V(1) {
 			glog.Infof("server retrans packets: addr=%s sz=%d", c.conn.RemoteAddr(), diff)
 		}
+		c.resend = diff
 	}
 	return nil
 }
@@ -538,6 +541,11 @@ func (c *Conn) ID() int {
 // IsReused .
 func (c *Conn) IsReused() bool {
 	return c.reused
+}
+
+// ReuseState .
+func (c *Conn) ReuseState() int {
+	return c.resend
 }
 
 // TargetServer .

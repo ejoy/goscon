@@ -4,23 +4,35 @@ import (
 	"fmt"
 )
 
-var NetBufferSize = 32 * 1024
+var NetBufferSize = 32 * 1024   // 32k
 var RueseBufferSize = 64 * 1024 // 64k
 
 const (
-	SCPStatusOK             = 200
-	SCPStatusUnauthorized   = 401
-	SCPStatusExpired        = 403
-	SCPStatusIDNotFound     = 404
-	SCPStatusNotAcceptable  = 406
-	SCPStatusServerInternal = 501
+	SCPStatusOK            = 200 // succeed
+	SCPStatusBadRequest    = 400 // malformed request
+	SCPStatusUnauthorized  = 401 // verify checksum failed
+	SCPStatusExpired       = 403 // verify handshake number failed
+	SCPStatusIDNotFound    = 404 // match old connection failed
+	SCPStatusNotAcceptable = 406 // reuse buffer overflow
+	SCPStatusNetworkError  = 501 //
 )
 
-var ErrIllegalMsg = fmt.Errorf("Illegal Message")
-var ErrUnauthorized = fmt.Errorf("401 Unauthorized")
-var ErrIndexExpired = fmt.Errorf("403 Index Expired")
-var ErrIDNotFound = fmt.Errorf("404 ID Not Found")
-var ErrNotAcceptable = fmt.Errorf("406 Not Acceptable")
+// Error .
+type Error struct {
+	Code int
+	Desc string
+}
+
+// Error .
+func (se *Error) Error() string {
+	return fmt.Sprintf("%d %s", se.Code, se.Desc)
+}
+
+var ErrIllegalMsg = &Error{400, "illegal message"}
+var ErrUnauthorized = &Error{401, "Unauthorized"}
+var ErrIndexExpired = &Error{403, "Index Expired"}
+var ErrIDNotFound = &Error{404, "ID Not Found"}
+var ErrNotAcceptable = &Error{406, "Not Acceptable"}
 
 func newError(code int) error {
 	switch code {

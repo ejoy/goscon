@@ -6,6 +6,7 @@ require (
 	github.com/klauspost/cpuid v1.2.1 // indirect
 	github.com/klauspost/reedsolomon v1.9.3 // indirect
 	github.com/libp2p/go-reuseport v0.0.1
+	github.com/prometheus/client_golang v1.0.0
 	github.com/spf13/viper v1.4.0
 	github.com/templexxx/cpufeat v0.0.0-20180724012125-cef66df7f161 // indirect
 	github.com/templexxx/xor v0.0.0-20181023030647-4e92f724b73b // indirect

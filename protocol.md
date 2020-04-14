@@ -76,10 +76,12 @@ CODE msg
 CODE 是一个10进制三位数, 表示连接是否恢复:
 
 * 200 OK : 表示连接成功
+* 400 Malformed request : 数据解释失败
 * 401 Unauthorized : 表示 HMAC 计算错误
 * 403 Index Expired : 表示 Index 已经使用过
 * 404 User Not Found : 表示连接 id 已经无效
 * 406 Not Acceptable : 表示 cache 的数据流不够
+* 501 Network Error ：网络相关错误
 
 当连接恢复后, 服务器应当根据之前记录的发送出去的字节数（不计算每次握手包的字节）, 减去客户端通知它收到的字节数, 开始补发未收到的字节。
 客户端也做相同的事情。
