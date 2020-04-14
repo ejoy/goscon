@@ -115,14 +115,6 @@ func (ss *SCPServer) QueryByID(id int) *scp.Conn {
 	return nil
 }
 
-// Status .
-func (ss *SCPServer) Status(o map[string]interface{}) int {
-	ss.connPairMutex.Lock()
-	o["pairs"] = len(ss.connPairs)
-	ss.connPairMutex.Unlock()
-	return len(ss.connPairs)
-}
-
 func (ss *SCPServer) addConnPair(id int, pair *connPair) {
 	ss.connPairMutex.Lock()
 	defer ss.connPairMutex.Unlock()
