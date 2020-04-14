@@ -130,6 +130,8 @@ func (s *SCPConn) ReplaceConn(conn *scp.Conn) bool {
 		return false
 	}
 
+	// TODO: check s.Conn and conn is match
+
 	// close old conn
 	s.Conn.Close()
 

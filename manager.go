@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"runtime"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/xjdrew/glog"
 	"github.com/xtaci/kcp-go"
 )
@@ -54,6 +55,8 @@ func startManager(laddr string) (err error) {
 		enc := json.NewEncoder(w)
 		enc.Encode(kcp.DefaultSnmp.Copy())
 	})
+
+	http.Handle("/metrics", promhttp.Handler())
 
 	go func() {
 		defer ln.Close()
