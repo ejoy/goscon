@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/ejoy/goscon/scp"
 	"github.com/prometheus/client_golang/prometheus"
@@ -38,6 +39,8 @@ var (
 		Name:       "goscon_connection_resend",
 		Help:       "bytes of data resend while reuse",
 		Objectives: map[float64]float64{0.5: 0.05, 0.9: 0.01, 0.99: 0.001},
+		MaxAge:     time.Hour * 12,
+		AgeBuckets: 12,
 	})
 
 	connectionReuseFails = prometheus.NewCounter(prometheus.CounterOpts{
