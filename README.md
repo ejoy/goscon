@@ -78,12 +78,12 @@ go build -mod=vendor ./examples/client
 
 ## maintenance
 
-可以通过默认开启的管理端口`http://localhost:6220`进行配置热更新，查看内部状态。
+可以通过默认开启的管理端口`http://localhost:6620`进行配置热更新，查看内部状态。
 
 * 热更新配置
     - 修改配置文件
-    - 访问: `http://localhost:6220/reload`
+    - 访问: `http://localhost:6620/reload`
 * 查看内部状态
-    - 当前配置：`http://localhost:6220/config`
-    - 状态: `http://localhost:6220/status`
-    - kcp snmp: `http://localhost:6220/kcp/snmp`
+    - 当前配置：`http://localhost:6620/config`
+    - 指标: `http://localhost:6620/metrics`
+    - kcp snmp: `http://localhost:6620/kcp/snmp`
