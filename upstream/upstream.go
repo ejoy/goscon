@@ -4,7 +4,6 @@ import (
 	"errors"
 	"math/rand"
 	"net"
-	"strings"
 	"sync/atomic"
 
 	"github.com/ejoy/goscon/scp"
@@ -61,22 +60,13 @@ func lookupTCPAddrs(hostport string) ([]*net.TCPAddr, error) {
 	if err != nil {
 		return nil, err
 	}
-	port, err := net.LookupPort("tcp", service)
-	if err != nil {
-		return nil, err
-	}
 	tcpAddrs := make([]*net.TCPAddr, len(addrs))
 	for i, addr := range addrs {
-		addrDesc := strings.Split(addr, "%")
-		var zone string
-		if len(addrDesc) > 1 {
-			zone = addrDesc[1]
+		addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(addr, service))
+		if err != nil { // only error when lookup port failed
+			return nil, err
 		}
-		tcpAddrs[i] = &net.TCPAddr{
-			IP:   net.ParseIP(addrDesc[0]),
-			Port: port,
-			Zone: zone,
-		}
+		tcpAddrs[i] = addr
 	}
 	return tcpAddrs, nil
 }
