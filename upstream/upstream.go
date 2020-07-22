@@ -21,7 +21,7 @@ type Host struct {
 	Weight int
 	Name   string
 
-	addr *net.TCPAddr
+	addrs []*net.TCPAddr
 }
 
 type hostGroup struct {
@@ -50,6 +50,27 @@ func (u *upstreams) chooseByWeight(group *hostGroup) *Host {
 	return nil
 }
 
+// reference to the host:port format of `net.Dial`.
+func lookupTCPAddrs(hostport string) ([]*net.TCPAddr, error) {
+	host, service, err := net.SplitHostPort(hostport)
+	if err != nil {
+		return nil, err
+	}
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return nil, err
+	}
+	tcpAddrs := make([]*net.TCPAddr, len(addrs))
+	for i, addr := range addrs {
+		addr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(addr, service))
+		if err != nil { // only error when lookup port failed
+			return nil, err
+		}
+		tcpAddrs[i] = addr
+	}
+	return tcpAddrs, nil
+}
+
 // UpdateHosts .
 func (u *upstreams) UpdateHosts(hosts []Host) error {
 	sz := len(hosts)
@@ -63,11 +84,11 @@ func (u *upstreams) UpdateHosts(hosts []Host) error {
 	byNameHosts := make(map[string]*hostGroup)
 	for _, host := range hosts {
 		h := host
-		addr, err := net.ResolveTCPAddr("tcp", h.Addr)
+		addrs, err := lookupTCPAddrs(h.Addr)
 		if err != nil {
 			return err
 		}
-		h.addr = addr
+		h.addrs = addrs
 		if h.Weight <= 0 {
 			// set default weight
 			h.Weight = defaultWeight
@@ -122,7 +143,8 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 		return
 	}
 
-	conn, err = net.DialTCP("tcp", nil, host.addr)
+	addr := host.addrs[rand.Intn(len(host.addrs))]
+	conn, err = net.DialTCP("tcp", nil, addr)
 	if err != nil {
 		glog.Errorf("connect to <%s> failed: %s", host.Addr, err.Error())
 		return
