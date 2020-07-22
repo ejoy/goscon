@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/rand"
 	"net"
+	"strings"
 	"sync/atomic"
 
 	"github.com/ejoy/goscon/scp"
@@ -50,6 +51,7 @@ func (u *upstreams) chooseByWeight(group *hostGroup) *Host {
 	return nil
 }
 
+// reference to the host:port format of `net.Dial`.
 func lookupTCPAddrs(hostport string) ([]*net.TCPAddr, error) {
 	host, service, err := net.SplitHostPort(hostport)
 	if err != nil {
@@ -65,10 +67,15 @@ func lookupTCPAddrs(hostport string) ([]*net.TCPAddr, error) {
 	}
 	tcpAddrs := make([]*net.TCPAddr, len(addrs))
 	for i, addr := range addrs {
+		addrDesc := strings.Split(addr, "%")
+		var zone string
+		if len(addrDesc) > 1 {
+			zone = addrDesc[1]
+		}
 		tcpAddrs[i] = &net.TCPAddr{
-			IP:   net.ParseIP(addr),
+			IP:   net.ParseIP(addrDesc[0]),
 			Port: port,
-			Zone: "",
+			Zone: zone,
 		}
 	}
 	return tcpAddrs, nil
