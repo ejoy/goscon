@@ -205,6 +205,7 @@ func main() {
 	flag.Set("logtostderr", "true")
 
 	var echoServer string
+	var optEchoClient bool
 	flag.IntVar(&optConcurrent, "concurrent", 1, "concurrent connections")
 	flag.IntVar(&optPackets, "packets", 100, "total packets each connection")
 	flag.IntVar(&optPacketsPerSecond, "pps", 100, "packets per second each connection")
@@ -214,6 +215,7 @@ func main() {
 	flag.UintVar(&optRunRounds, "rounds", 1, "run rounds")
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
 	flag.StringVar(&optConnect, "connect", "127.0.0.1:1248", "connect to scon server")
+	flag.BoolVar(&optEchoClient, "startEchoClient", false, "start echo client")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
 	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
 	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
@@ -243,6 +245,18 @@ func main() {
 		glog.Infof("listen %s", ln.Addr())
 		ch := make(chan bool, 0)
 		ch <- true
+		return
+	}
+
+	if optEchoClient {
+		conn, err := Dial(network, optConnect)
+		if err != nil {
+			glog.Errorf("start echo client: %s", err.Error())
+			return
+		}
+		scon, _ := scp.Client(conn, &scp.Config{})
+		go io.Copy(os.Stdout, scon)
+		io.Copy(scon, os.Stdin)
 		return
 	}
 
