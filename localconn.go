@@ -2,7 +2,6 @@ package main
 
 import (
 	"net"
-	"sync"
 
 	"github.com/ejoy/goscon/scp"
 	"github.com/xjdrew/glog"
@@ -14,15 +13,15 @@ type LocalSCPConn struct {
 }
 
 // ReuseConn reused conn
-func reuseConn(connForReused *scp.Conn) (conn net.Conn, err error) {
-	addr, _ := net.ResolveTCPAddr("tcp", connForReused.RemoteAddr().String())
-	tcpConn, err := net.DialTCP("tcp", nil, addr)
+func reuseConn(connForReused *scp.Conn) (scon *scp.Conn, err error) {
+	remoteAddr := connForReused.RemoteAddr()
+	tcpConn, err := net.Dial(remoteAddr.Network(), remoteAddr.String())
 	if err != nil {
-		glog.Errorf("connect to <%s> failed: %s when reuse conn", addr.String(), err.Error())
+		glog.Errorf("connect to <%s> failed: %s when reuse conn", remoteAddr.String(), err.Error())
 		return
 	}
 
-	scon, err := scp.Client(tcpConn, &scp.Config{
+	scon, err = scp.Client(tcpConn, &scp.Config{
 		ConnForReused: connForReused,
 		TargetServer:  connForReused.TargetServer(),
 	})
@@ -38,16 +37,14 @@ func reuseConn(connForReused *scp.Conn) (conn net.Conn, err error) {
 		return
 	}
 
-	conn = scon
 	return
 }
 
 func (c *LocalSCPConn) reuseConn() {
-	conn, err := reuseConn(c.Conn)
+	scon, err := reuseConn(c.Conn)
 	if err != nil {
 		return
 	}
-	scon := conn.(*scp.Conn)
 	if !c.ReplaceConn(scon) {
 		scon.Close()
 	}
@@ -61,9 +58,7 @@ func (c *LocalSCPConn) startWait() {
 
 // NewLocalSCPConn .
 func NewLocalSCPConn(scon *scp.Conn) *LocalSCPConn {
-	scpConn := &SCPConn{Conn: scon}
-	scpConn.connCond = sync.NewCond(&scpConn.connMutex)
-	scpConn.reuseTimeout = configItemTime("scp.reuse_time")
+	scpConn := NewSCPConn(scon)
 	localSCPConn := &LocalSCPConn{SCPConn: scpConn}
 	return localSCPConn
 }
