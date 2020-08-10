@@ -154,7 +154,6 @@ func upgradeNetConn(network string, localConn net.Conn, remoteConn *scp.Conn) (c
 		err = scon.Handshake()
 		if err != nil {
 			glog.Errorf("scp handshake failed: client=%s, err=%s", scon.RemoteAddr().String(), err.Error())
-			scon.Close()
 			return
 		}
 		conn = scon
@@ -183,6 +182,7 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 
 	conn, err = upgradeNetConn(u.option.Net, tcpConn, remoteConn)
 	if err != nil {
+		conn.Close()
 		return
 	}
 
