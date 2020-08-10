@@ -13,12 +13,18 @@ Client->Server: 传输一个 2 byte size(big-endian) + content 的包, size == l
 ```
 0\n
 base64(DHPublicKey)\n
-targetServer
+targetServer\n
+flag
 ```
 
-DHPublicKey 是一个 8 bytes 值, 经过 DH 算法计算出来的 key。
+`DHPublicKey` 是一个 8 bytes 值, 经过 DH 算法计算出来的 key。
 
 `targetServer`用于提示优先连接的后端服务器名字。`targetServer`应该仅包括[a-zA-Z_0-9]。
+
+`flag` 32 位整形，允许通过设置不同的比特位开启不同的选项。
+
+- 比特位 1: 表示禁止将 client ip 发送给 upstream。
+- ...
 
 ```
 DHPrivateKey = dh64.PrivateKey()

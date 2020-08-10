@@ -9,6 +9,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/ejoy/goscon/scp"
 	sproto "github.com/xjdrew/gosproto"
 )
 
@@ -49,12 +50,16 @@ func (s *sprotoHook) init() {
 	s.packHeader = sproto.MustEncode(pack)
 }
 
-func (s *sprotoHook) AfterConnected(local net.Conn, remote net.Conn) (err error) {
+func (s *sprotoHook) AfterConnected(local net.Conn, remote *scp.Conn) (err error) {
 	if !flag.Parsed() {
 		return
 	}
 
 	if optSproto == -1 {
+		return
+	}
+
+	if remote.ForbidForwardIP() {
 		return
 	}
 

@@ -2,11 +2,17 @@ package scp
 
 import (
 	"fmt"
+	"time"
 )
 
-var NetBufferSize = 32 * 1024   // 32k
-var RueseBufferSize = 64 * 1024 // 64k
+// NetBufferSize .
+var NetBufferSize = 32 * 1024 // 32k
+// ReuseBufferSize .
+var ReuseBufferSize = 64 * 1024 // 64k
+// HandshakeTimeout .
+var HandshakeTimeout time.Duration // 0s
 
+// SCPStatus Code
 const (
 	SCPStatusOK            = 200 // succeed
 	SCPStatusBadRequest    = 400 // malformed request
@@ -28,10 +34,19 @@ func (se *Error) Error() string {
 	return fmt.Sprintf("%d %s", se.Code, se.Desc)
 }
 
+// ErrIllegalMsg .
 var ErrIllegalMsg = &Error{400, "illegal message"}
+
+// ErrUnauthorized .
 var ErrUnauthorized = &Error{401, "Unauthorized"}
+
+// ErrIndexExpired .
 var ErrIndexExpired = &Error{403, "Index Expired"}
+
+// ErrIDNotFound .
 var ErrIDNotFound = &Error{404, "ID Not Found"}
+
+// ErrNotAcceptable .
 var ErrNotAcceptable = &Error{406, "Not Acceptable"}
 
 func newError(code int) error {

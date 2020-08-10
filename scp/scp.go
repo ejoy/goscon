@@ -17,6 +17,10 @@ type SCPServer interface {
 }
 
 type Config struct {
+	// Flag
+	// for client
+	Flag int
+
 	// preferred target server
 	// for client
 	TargetServer string
