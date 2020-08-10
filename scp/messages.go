@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// 32 bit flags definitions for SCPConn.
+// 32 bit flag definitions for SCPConn.
 const (
-	SCPFlagsForwardIP = 0x1
+	SCPFlagForbidForwardIP = 0x1
 	// ...
 )
 
@@ -43,12 +43,12 @@ type newConnReq struct {
 	id           int
 	key          leu64
 	targetServer string
-	// 32 bit flags for different extension, see SCPFlags
-	flags int
+	// 32 bit flag for different extension, see SCPFlag
+	flag int
 }
 
 func (r *newConnReq) marshal() []byte {
-	s := fmt.Sprintf("%d\n%s\n%s\n%d", r.id, b64encodeLeu64(r.key), r.targetServer, r.flags)
+	s := fmt.Sprintf("%d\n%s\n%s\n%d", r.id, b64encodeLeu64(r.key), r.targetServer, r.flag)
 	return []byte(s)
 }
 
@@ -72,7 +72,7 @@ func (r *newConnReq) unmarshal(s []byte) (err error) {
 	}
 
 	if len(lines) >= 4 {
-		if r.flags, err = strconv.Atoi(lines[3]); err != nil {
+		if r.flag, err = strconv.Atoi(lines[3]); err != nil {
 			return
 		}
 	}

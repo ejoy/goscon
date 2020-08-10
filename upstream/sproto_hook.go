@@ -5,6 +5,7 @@ package upstream
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"net"
 	"sync"
 
@@ -49,11 +50,19 @@ func (s *sprotoHook) init() {
 	s.packHeader = sproto.MustEncode(pack)
 }
 
-func (s *sprotoHook) IfEnable(local net.Conn, remote *scp.Conn) bool {
-	return remote.ForwardIP()
-}
-
 func (s *sprotoHook) AfterConnected(local net.Conn, remote *scp.Conn) (err error) {
+	if !flag.Parsed() {
+		return	}
+	}
+
+	if optSproto == -1 {
+		return	
+	}
+
+	if remote.ForbidForwardIP() {
+		return
+	}
+
 	if s.packHeader == nil {
 		s.init()
 	}
@@ -76,5 +85,7 @@ func (s *sprotoHook) AfterConnected(local net.Conn, remote *scp.Conn) (err error
 }
 
 func init() {
+	flag.IntVar(&optSproto, "sproto", -1, "sproto message type")
+
 	setHook(&sprotoHook{})
 }

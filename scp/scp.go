@@ -29,9 +29,9 @@ type Config struct {
 	// for server
 	ScpServer SCPServer
 
-	// Flags
+	// Flag
 	// for server
-	Flags int
+	Flag int
 }
 
 var defaultConfig = &Config{}

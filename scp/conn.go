@@ -564,7 +564,7 @@ func (c *Conn) TargetServer() string {
 	return c.config.TargetServer
 }
 
-// ForwardIP .
-func (c *Conn) ForwardIP() bool {
-	return c.config.Flags&SCPFlagsForwardIP > 0
+// ForbidForwardIP .
+func (c *Conn) ForbidForwardIP() bool {
+	return c.config.Flag&SCPFlagForbidForwardIP > 0
 }

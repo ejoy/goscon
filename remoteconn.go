@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ejoy/goscon/scp"
-	"github.com/ejoy/goscon/upstream"
 )
 
 var errConnClosed = errors.New("conn closed")
@@ -42,17 +41,6 @@ func (s *SCPConn) setConnError(conn *scp.Conn, err error) {
 	s.connErr = err
 }
 
-func (s *SCPConn) reuseConn() {
-	conn, err := upstream.ReuseConn(s.Conn)
-	if err != nil {
-		return
-	}
-	scon := conn.(*scp.Conn)
-	if !s.ReplaceConn(scon) {
-		scon.Close()
-	}
-}
-
 // startWait 启动超时计数
 func (s *SCPConn) startWait() {
 	if s.reuseCh != nil {
@@ -68,9 +56,6 @@ func (s *SCPConn) startWait() {
 		}
 	}()
 	s.reuseCh = done
-	if !s.IsServerConn() { // reuse the upstream scp.conn
-		go s.reuseConn()
-	}
 }
 
 // stopWait 停止超时计数
@@ -98,11 +83,6 @@ func (s *SCPConn) acquireConn() (*scp.Conn, error) {
 	}
 }
 
-// Freeze will suspend the scon until connection closed or new connection established.
-func (s *SCPConn) Freeze(conn *scp.Conn) {
-	conn.Freeze()
-}
-
 // Read .
 func (s *SCPConn) Read(p []byte) (int, error) {
 	conn, err := s.acquireConn()
@@ -113,7 +93,7 @@ func (s *SCPConn) Read(p []byte) (int, error) {
 	n, err := conn.Read(p)
 	if err != nil {
 		// freeze, waiting for reuse
-		s.Freeze(conn)
+		conn.Freeze()
 		s.setConnError(conn, err)
 	}
 	return n, nil
@@ -131,7 +111,7 @@ func (s *SCPConn) Write(p []byte) (int, error) {
 
 		if err != nil {
 			// freeze, waiting for reuse
-			s.Freeze(conn)
+			conn.Freeze()
 			s.setConnError(conn, err)
 		}
 		nn = nn + n

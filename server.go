@@ -172,7 +172,7 @@ func newUpstreamConn(scon *scp.Conn) (conn net.Conn, err error) {
 		return
 	}
 	if scon, ok := localconn.(*scp.Conn); ok {
-		conn = NewSCPConn(scon)
+		conn = NewLocalSCPConn(scon)
 	} else {
 		conn = localconn
 	}
