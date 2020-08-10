@@ -147,6 +147,23 @@ func (u *upstreams) GetHost(preferred string) *Host {
 	return u.GetHostByWeight()
 }
 
+func upgradeNetConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {
+	if network == "scp" {
+		scon, _ := scp.Client(localConn, &scp.Config{TargetServer: remoteConn.TargetServer()})
+
+		err = scon.Handshake()
+		if err != nil {
+			glog.Errorf("scp handshake failed: client=%s, err=%s", scon.RemoteAddr().String(), err.Error())
+			scon.Close()
+			return
+		}
+		conn = scon
+	} else {
+		conn = localConn
+	}
+	return
+}
+
 // NewConn creates a new connection to target server, pair with remoteConn
 func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	tserver := remoteConn.TargetServer()
@@ -164,18 +181,9 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 		return
 	}
 
-	if u.option.Net == "scp" {
-		scon, _ := scp.Client(tcpConn, &scp.Config{TargetServer: remoteConn.TargetServer()})
-
-		err = scon.Handshake()
-		if err != nil {
-			glog.Errorf("scp handshake failed: client=%s, err=%s", scon.RemoteAddr().String(), err.Error())
-			scon.Close()
-			return
-		}
-		conn = scon
-	} else {
-		conn = tcpConn
+	conn, err = upgradeNetConn(u.option.Net, tcpConn, remoteConn)
+	if err != nil {
+		return
 	}
 
 	err = OnAfterConnected(conn, remoteConn)
