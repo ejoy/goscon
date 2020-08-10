@@ -13,7 +13,7 @@ type LocalSCPConn struct {
 	*SCPConn
 }
 
-// ReuseConn reused conn, only valid for scp conn
+// ReuseConn reused conn
 func reuseConn(connForReused *scp.Conn) (conn net.Conn, err error) {
 	addr, _ := net.ResolveTCPAddr("tcp", connForReused.RemoteAddr().String())
 	tcpConn, err := net.DialTCP("tcp", nil, addr)
@@ -53,7 +53,7 @@ func (c *LocalSCPConn) reuseConn() {
 	}
 }
 
-// startWait 开启超时计数，发起重连操作
+// startWait start reuse timer and reuse conn
 func (c *LocalSCPConn) startWait() {
 	c.SCPConn.startWait()
 	go c.reuseConn() // reuse the upstream scp.conn
