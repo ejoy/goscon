@@ -52,11 +52,11 @@ func (s *sprotoHook) init() {
 
 func (s *sprotoHook) AfterConnected(local net.Conn, remote *scp.Conn) (err error) {
 	if !flag.Parsed() {
-		return	}
+		return
 	}
 
 	if optSproto == -1 {
-		return	
+		return
 	}
 
 	if remote.ForbidForwardIP() {
