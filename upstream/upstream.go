@@ -147,7 +147,7 @@ func (u *upstreams) GetHost(preferred string) *Host {
 	return u.GetHostByWeight()
 }
 
-func upgradeNetConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {
+func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {
 	if network == "scp" {
 		scon, _ := scp.Client(localConn, &scp.Config{TargetServer: remoteConn.TargetServer()})
 
@@ -180,7 +180,7 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 		return
 	}
 
-	conn, err = upgradeNetConn(u.option.Net, tcpConn, remoteConn)
+	conn, err = upgradeConn(u.option.Net, tcpConn, remoteConn)
 	if err != nil {
 		conn.Close()
 		return

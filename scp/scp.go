@@ -17,6 +17,10 @@ type SCPServer interface {
 }
 
 type Config struct {
+	// Flag
+	// for client
+	Flag int
+
 	// preferred target server
 	// for client
 	TargetServer string
@@ -28,10 +32,6 @@ type Config struct {
 	// SCPServer
 	// for server
 	ScpServer SCPServer
-
-	// Flag
-	// for server
-	Flag int
 }
 
 var defaultConfig = &Config{}
