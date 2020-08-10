@@ -13,9 +13,6 @@ import (
 // ErrNoHost .
 var ErrNoHost = errors.New("no host")
 
-// ErrInvalidOption .
-var ErrInvalidOption = errors.New("invalid option")
-
 const defaultWeight = 100
 
 // Option decribes upstream option
