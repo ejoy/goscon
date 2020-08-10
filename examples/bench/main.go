@@ -34,7 +34,7 @@ var (
 	kcpFecParity int
 )
 
-func DialWithOptions(network, connect string) (net.Conn, error) {
+func dialWithOptions(network, connect string) (net.Conn, error) {
 	if network == "tcp" {
 		return net.Dial(network, connect)
 	} else {
@@ -48,13 +48,13 @@ func DialWithOptions(network, connect string) (net.Conn, error) {
 	}
 }
 
-func DialScon(network, connect string, targetServer string) (*scp.Conn, error) {
-	conn, err := DialWithOptions(network, connect)
+func dialScon(network, connect string, targetServer string) (*scp.Conn, error) {
+	conn, err := dialWithOptions(network, connect)
 	if err != nil {
 		return nil, err
 	}
 
-	scon := scp.Client(conn, &scp.Config{TargetServer: targetServer})
+	scon, _ := scp.Client(conn, &scp.Config{TargetServer: targetServer})
 	return scon, nil
 }
 
@@ -71,7 +71,7 @@ func bench(i int, conn net.Conn, host string, payload string, chStat chan Stat) 
 
 	writer := bufio.NewWriter(conn)
 
-	stat := Stat{conn: i, slow: 0, round: 0, percent: make([]int, statLevel + 1)}
+	stat := Stat{conn: i, slow: 0, round: 0, percent: make([]int, statLevel+1)}
 
 	for range ticker.C {
 		start := time.Now()
@@ -158,7 +158,7 @@ func main() {
 	for i := 0; i < connections; i++ {
 		idx := i + 1
 		go func() {
-			sconn, err := DialScon(network, connect, targetServer)
+			sconn, err := dialScon(network, connect, targetServer)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -171,8 +171,8 @@ func main() {
 		log.Printf(">>>> slow: %d, round: %d, slow rate: %.3f", stat.slow, stat.round, float32(stat.slow)/float32(stat.round))
 		log.Printf(">>>> distribution")
 		for i := 0; i < statLevel; i++ {
-			log.Printf("bound (%d, %d]: %d", i * statGap, (i + 1) * statGap, stat.percent[i])
+			log.Printf("bound (%d, %d]: %d", i*statGap, (i+1)*statGap, stat.percent[i])
 		}
-		log.Printf("bound (%d, inf]: %d", statLevel * statGap, stat.percent[statLevel])
+		log.Printf("bound (%d, inf]: %d", statLevel*statGap, stat.percent[statLevel])
 	}
 }
