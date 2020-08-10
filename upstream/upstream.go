@@ -13,13 +13,25 @@ import (
 // ErrNoHost .
 var ErrNoHost = errors.New("no host")
 
+// ErrInvalidOption .
+var ErrInvalidOption = errors.New("invalid option")
+
+// ErrInvalidReuse .
+var ErrInvalidReuse = errors.New("reuse conn is invalid")
+
 const defaultWeight = 100
+
+// Option decribes upstream option
+type Option struct {
+	Net string
+}
 
 // Host indicates a backend server
 type Host struct {
+	Name   string
 	Addr   string
 	Weight int
-	Name   string
+	Net    string
 
 	addrs []*net.TCPAddr
 }
@@ -31,8 +43,16 @@ type hostGroup struct {
 
 // upstreams 代表后端服务
 type upstreams struct {
+	option Option
+
 	allHosts    atomic.Value // *hostGroup
 	byNameHosts atomic.Value // map[string]*hostGroup
+}
+
+// SetOption .
+func (u *upstreams) SetOption(option Option) error {
+	u.option = option
+	return nil
 }
 
 func (u *upstreams) chooseByWeight(group *hostGroup) *Host {
@@ -133,10 +153,10 @@ func (u *upstreams) GetHost(preferred string) *Host {
 	return u.GetHostByWeight()
 }
 
-// NewConn create a new connection, pair with remoteConn
+// NewConn creates a new connection to target server, pair with remoteConn
 func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	tserver := remoteConn.TargetServer()
-	host := u.GetHost(tserver)
+	host := u.GetHost(tserver) // TODO: handle name resolve
 	if host == nil {
 		err = ErrNoHost
 		glog.Errorf("get host <%s> failed: %s", tserver, err.Error())
@@ -144,23 +164,82 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	}
 
 	addr := host.addrs[rand.Intn(len(host.addrs))]
-	conn, err = net.DialTCP("tcp", nil, addr)
+	tcpConn, err := net.DialTCP("tcp", nil, addr)
 	if err != nil {
 		glog.Errorf("connect to <%s> failed: %s", host.Addr, err.Error())
 		return
 	}
+
+	if u.option.Net == "scp" {
+		scon, _ := scp.Client(tcpConn, &scp.Config{TargetServer: remoteConn.TargetServer()})
+
+		err = scon.Handshake()
+		if err != nil {
+			glog.Errorf("scp handshake failed: client=%s, err=%s", scon.RemoteAddr().String(), err.Error())
+			scon.Close()
+			return
+		}
+		conn = scon
+	} else {
+		conn = tcpConn
+	}
+
 	err = OnAfterConnected(conn, remoteConn)
 	return
 }
 
+// ReuseConn reused conn, only valid for scp conn
+func (u *upstreams) ReuseConn(reuseConn net.Conn) (conn net.Conn, err error) {
+	connForReused, ok := reuseConn.(*scp.Conn)
+	if !ok || connForReused.IsServerConn() {
+		err = ErrInvalidReuse
+		return
+	}
+	addr, _ := net.ResolveTCPAddr("tcp", connForReused.RemoteAddr().String())
+	tcpConn, err := net.DialTCP("tcp", nil, addr)
+	if err != nil {
+		glog.Errorf("connect to <%s> failed: %s when reuse conn", addr.String(), err.Error())
+		return
+	}
+
+	scon, err := scp.Client(tcpConn, &scp.Config{
+		ConnForReused: connForReused,
+		TargetServer:  connForReused.TargetServer(),
+	})
+	if err != nil {
+		glog.Errorf("scp reuse conn failed: %s", err.Error())
+		return
+	}
+
+	err = scon.Handshake()
+	if err != nil {
+		glog.Errorf("scp reuse handshake failed: client=%s, err=%s", scon.RemoteAddr().String(), err.Error())
+		scon.Close()
+		return
+	}
+
+	conn = scon
+	return
+}
+
 var defaultUpstreams upstreams
+
+// SetOption sets option
+func SetOption(option Option) error {
+	return defaultUpstreams.SetOption(option)
+}
+
+// UpdateHosts refresh backend hosts list
+func UpdateHosts(hosts []Host) error {
+	return defaultUpstreams.UpdateHosts(hosts)
+}
 
 // NewConn create a new connection, pair with remoteConn
 func NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	return defaultUpstreams.NewConn(remoteConn)
 }
 
-// UpdateHosts refresh backend hosts list
-func UpdateHosts(hosts []Host) error {
-	return defaultUpstreams.UpdateHosts(hosts)
+// ReuseConn reused conn for proxy type conn
+func ReuseConn(connForReused *scp.Conn) (conn net.Conn, err error) {
+	return defaultUpstreams.ReuseConn(connForReused)
 }

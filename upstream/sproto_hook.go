@@ -5,10 +5,10 @@ package upstream
 import (
 	"bytes"
 	"encoding/binary"
-	"flag"
 	"net"
 	"sync"
 
+	"github.com/ejoy/goscon/scp"
 	sproto "github.com/xjdrew/gosproto"
 )
 
@@ -49,15 +49,11 @@ func (s *sprotoHook) init() {
 	s.packHeader = sproto.MustEncode(pack)
 }
 
-func (s *sprotoHook) AfterConnected(local net.Conn, remote net.Conn) (err error) {
-	if !flag.Parsed() {
-		return
-	}
+func (s *sprotoHook) IfEnable(local net.Conn, remote *scp.Conn) bool {
+	return remote.ForwardIP()
+}
 
-	if optSproto == -1 {
-		return
-	}
-
+func (s *sprotoHook) AfterConnected(local net.Conn, remote *scp.Conn) (err error) {
 	if s.packHeader == nil {
 		s.init()
 	}
@@ -80,7 +76,5 @@ func (s *sprotoHook) AfterConnected(local net.Conn, remote net.Conn) (err error)
 }
 
 func init() {
-	flag.IntVar(&optSproto, "sproto", -1, "sproto message type")
-
 	setHook(&sprotoHook{})
 }

@@ -166,6 +166,19 @@ func (ss *SCPServer) onReuseConn(scon *scp.Conn) bool {
 	return true
 }
 
+func newUpstreamConn(scon *scp.Conn) (conn net.Conn, err error) {
+	localconn, err := upstream.NewConn(scon)
+	if err != nil {
+		return
+	}
+	if scon, ok := localconn.(*scp.Conn); ok {
+		conn = NewSCPConn(scon)
+	} else {
+		conn = localconn
+	}
+	return
+}
+
 func (ss *SCPServer) onNewConn(scon *scp.Conn) bool {
 	id := scon.ID()
 	defer ss.ReleaseID(id)
@@ -177,7 +190,7 @@ func (ss *SCPServer) onNewConn(scon *scp.Conn) bool {
 	ss.addConnPair(id, connPair)
 	defer ss.removeConnPair(id)
 
-	localConn, err := upstream.NewConn(scon)
+	localConn, err := newUpstreamConn(scon)
 	if err != nil {
 		scon.Close()
 		upstreamErrors.Inc()
@@ -204,17 +217,7 @@ func (ss *SCPServer) handleConn(conn net.Conn) {
 
 	scon := scp.Server(conn, &scp.Config{ScpServer: ss})
 
-	// handshake
-	handshakeTimeout := configItemTime("scp.handshake_timeout")
-	if handshakeTimeout > 0 {
-		scon.SetDeadline(time.Now().Add(handshakeTimeout))
-	}
-
 	err := scon.Handshake()
-
-	if handshakeTimeout > 0 {
-		scon.SetDeadline(zeroTime)
-	}
 
 	if err != nil {
 		glog.Errorf("scp handshake faield: client=%s, err=%s", conn.RemoteAddr().String(), err.Error())

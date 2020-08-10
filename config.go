@@ -14,7 +14,6 @@ import (
 )
 
 var (
-	zeroTime    time.Time
 	configMu    sync.Mutex
 	configCache map[string]interface{}
 )
@@ -51,6 +50,8 @@ func init() {
 	viper.SetDefault("kcp_option.opt_rcvwnd", 2048)      // kcp opt_rcvwnd: 2048 byte, kcp连接的接收窗口
 	viper.SetDefault("kcp_option.opt_stream", true)      // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
 	viper.SetDefault("kcp_option.opt_writedelay", false) // kcp opt_writedelay: false, 延迟到下次interval发送数据
+
+	viper.SetDefault("upstream_option.net", "tcp") // upstream net: tcp,  默认使用 tcp 连接后端服务器
 
 	configCache = make(map[string]interface{})
 }
@@ -96,6 +97,17 @@ func reloadConfig() (err error) {
 	}
 	configMu.Unlock()
 
+	var option upstream.Option
+	if err = viper.UnmarshalKey("upstream_option", &option); err != nil {
+		glog.Errorf("unmarshal option failed: %s", err.Error())
+		return err
+	}
+
+	if err = upstream.SetOption(option); err != nil {
+		glog.Errorf("upstream set option failed: %s", err.Error())
+		return err
+	}
+
 	// update upstream
 	var hosts []upstream.Host
 	if err = viper.UnmarshalKey("hosts", &hosts); err != nil {
@@ -104,14 +116,18 @@ func reloadConfig() (err error) {
 	}
 
 	if err = upstream.UpdateHosts(hosts); err != nil {
-		glog.Errorf("update hosts failed: %s", err.Error())
+		glog.Errorf("upstream update hosts failed: %s", err.Error())
 		return err
 	}
 
 	// update scp
 	reuseBuffer := viper.GetInt("scp.reuse_buffer")
 	if reuseBuffer > 0 {
-		scp.RueseBufferSize = reuseBuffer
+		scp.ReuseBufferSize = reuseBuffer
+	}
+	handshakeTimeout := viper.GetInt("scp.handshake_timeout")
+	if handshakeTimeout > 0 {
+		scp.HandshakeTimeout = time.Duration(handshakeTimeout) * time.Second
 	}
 	return
 }

@@ -103,9 +103,9 @@ func (p *loopBufferPool) Get() *loopBuffer {
 	return b
 }
 
-// if RueseBufferSize changes, invalidate all old buffer
+// if ReuseBufferSize changes, invalidate all old buffer
 func (p *loopBufferPool) Put(v *loopBuffer) {
-	if v.Cap() != RueseBufferSize {
+	if v.Cap() != ReuseBufferSize {
 		return
 	}
 	p.pool.Put(v)
@@ -115,7 +115,7 @@ func newLoopBufferPool() *loopBufferPool {
 	return &loopBufferPool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				return newLoopBuffer(RueseBufferSize)
+				return newLoopBuffer(ReuseBufferSize)
 			},
 		},
 	}

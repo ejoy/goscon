@@ -28,6 +28,10 @@ type Config struct {
 	// SCPServer
 	// for server
 	ScpServer SCPServer
+
+	// Flags
+	// for server
+	Flags int
 }
 
 var defaultConfig = &Config{}

@@ -13,6 +13,8 @@ import (
 	"github.com/xjdrew/glog"
 )
 
+var zeroTime time.Time
+
 type cipherConnReader struct {
 	sync.Mutex
 	rd     io.Reader
@@ -430,6 +432,10 @@ func (c *Conn) setConnErr(err error) {
 
 // Handshake .
 func (c *Conn) Handshake() error {
+	if HandshakeTimeout > 0 {
+		c.SetDeadline(time.Now().Add(HandshakeTimeout))
+		defer c.SetDeadline(zeroTime)
+	}
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
 	if c.handshaked {
@@ -437,10 +443,10 @@ func (c *Conn) Handshake() error {
 	}
 
 	var err error
-	if c.config.ScpServer == nil {
-		err = c.clientHandshake()
-	} else {
+	if c.IsServerConn() {
 		err = c.serverHandshake()
+	} else {
+		err = c.clientHandshake()
 	}
 
 	c.setConnErr(err)
@@ -548,7 +554,17 @@ func (c *Conn) ReuseState() int {
 	return c.resend
 }
 
+// IsServerConn .
+func (c *Conn) IsServerConn() bool {
+	return c.config.ScpServer != nil
+}
+
 // TargetServer .
 func (c *Conn) TargetServer() string {
 	return c.config.TargetServer
+}
+
+// ForwardIP .
+func (c *Conn) ForwardIP() bool {
+	return c.config.Flags&SCPFlagsForwardIP > 0
 }
