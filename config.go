@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -17,6 +18,9 @@ var (
 	configMu    sync.Mutex
 	configCache map[string]interface{}
 )
+
+// ErrInvalidConfig .
+var ErrInvalidConfig = errors.New("Invalid Config")
 
 // init default configure
 func init() {
@@ -79,12 +83,12 @@ func reloadConfig() (err error) {
 		if glog.V(3) {
 			glog.Error("no config file used")
 		}
-		return
+		return ErrInvalidConfig
 	}
 
 	if err = viper.ReadInConfig(); err != nil {
 		glog.Errorf("read configuration failed: %s", err.Error())
-		return
+		return ErrInvalidConfig
 	}
 
 	// print current config
@@ -106,6 +110,15 @@ func reloadConfig() (err error) {
 	if err = viper.UnmarshalKey("upstream_option.resolve_rules", &option.ResolveRules); err != nil {
 		glog.Errorf("unmarshal option.resolve_rules failed: %s", err.Error())
 		return err
+	}
+
+	if len(option.ResolveRules) > 0 {
+		for _, r := range option.ResolveRules {
+			if r.NamePrefix == "" && r.NameSuffix == "" {
+				glog.Error("must have prefix or suffix for resolve rule")
+				return ErrInvalidConfig
+			}
+		}
 	}
 
 	if err = upstream.SetOption(option); err != nil {
