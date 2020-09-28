@@ -197,6 +197,7 @@ var optReuses int
 var optRunRounds uint
 var optVerbose bool
 var network string
+var optTargetServer string
 var fecData, fecParity int
 
 func main() {
@@ -217,6 +218,7 @@ func main() {
 	flag.StringVar(&optConnect, "connect", "127.0.0.1:1248", "connect to scon server")
 	flag.BoolVar(&optEchoClient, "startEchoClient", false, "start echo client")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
+	flag.StringVar(&optTargetServer, "targetServer", "", "prefered targetserver")
 	kcp := flag.NewFlagSet("kcp", flag.ExitOnError)
 	kcp.IntVar(&fecData, "fec_data", 1, "FEC: number of shards to split the data into")
 	kcp.IntVar(&fecParity, "fec_parity", 0, "FEC: number of parity shards")
@@ -254,7 +256,7 @@ func main() {
 			glog.Errorf("start echo client: %s", err.Error())
 			return
 		}
-		scon, _ := scp.Client(conn, &scp.Config{})
+		scon, _ := scp.Client(conn, &scp.Config{TargetServer: optTargetServer})
 		go io.Copy(os.Stdout, scon)
 		io.Copy(scon, os.Stdin)
 		return

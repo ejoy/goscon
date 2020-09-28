@@ -25,6 +25,9 @@ kcp_option:
   opt_stream: true
 upstream_option:
   net: tcp
+#  resolve_rules:
+#    - namesuffix: .com
+#      port: 443
 hosts:
   - name: test1
     addr: 127.0.0.1:11248

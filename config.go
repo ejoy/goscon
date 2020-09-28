@@ -103,6 +103,11 @@ func reloadConfig() (err error) {
 		return err
 	}
 
+	if err = viper.UnmarshalKey("upstream_option.resolve_rules", &option.ResolveRules); err != nil {
+		glog.Errorf("unmarshal option.resolve_rules failed: %s", err.Error())
+		return err
+	}
+
 	if err = upstream.SetOption(option); err != nil {
 		glog.Errorf("upstream set option failed: %s", err.Error())
 		return err
