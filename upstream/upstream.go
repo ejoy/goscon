@@ -17,9 +17,30 @@ const defaultWeight = 100
 
 // ResolveRule describes upstream resolver config
 type ResolveRule struct {
-	NamePrefix string
-	NameSuffix string
-	Port       string
+	Prefix string
+	Suffix string
+	Port   string
+}
+
+// Normalize .
+func (r *ResolveRule) Normalize(defaultPort string) bool {
+	if r.Prefix == "" && r.Suffix == "" {
+		return false
+	}
+	if r.Port == "" {
+		r.Port = defaultPort
+	}
+	return true
+}
+
+// UniqueID identifies the rule.
+func (r *ResolveRule) UniqueID() string {
+	return r.FullName("")
+}
+
+// FullName returns hostport defined by rule.
+func (r *ResolveRule) FullName(name string) string {
+	return net.JoinHostPort(r.Prefix+name+r.Suffix, r.Port)
 }
 
 // Option describes upstream option
@@ -118,7 +139,7 @@ func (u *upstreams) UpdateHosts(hosts []Host) error {
 	return nil
 }
 
-func chooseByConfig(group *hostGroup) *Host {
+func chooseByLocalHosts(group *hostGroup) *Host {
 	if group == nil || len(group.hosts) == 0 {
 		return nil
 	}
@@ -136,7 +157,7 @@ func chooseByConfig(group *hostGroup) *Host {
 func chooseByResolver(name string, rules []*ResolveRule) *Host {
 	hosts := make([]*Host, 0, 2)
 	for _, r := range rules {
-		hostport := net.JoinHostPort(r.NamePrefix+name+r.NameSuffix, r.Port)
+		hostport := r.FullName(name)
 		addrs, err := lookupTCPAddrs(hostport)
 		if err == nil {
 			h := Host{
@@ -158,7 +179,7 @@ func chooseByResolver(name string, rules []*ResolveRule) *Host {
 // name then random choose by weight
 func (u *upstreams) GetPreferredHost(name string) *Host {
 	mapHosts := u.byNameHosts.Load().(map[string]*hostGroup)
-	h := chooseByConfig(mapHosts[name])
+	h := chooseByLocalHosts(mapHosts[name])
 	if h == nil && len(u.option.ResolveRules) > 0 {
 		h = chooseByResolver(name, u.option.ResolveRules)
 	}
@@ -168,7 +189,7 @@ func (u *upstreams) GetPreferredHost(name string) *Host {
 // GetRandomHost chooses a host randomly from all hosts.
 func (u *upstreams) GetRandomHost() *Host {
 	mapHosts := u.allHosts.Load().(*hostGroup)
-	return chooseByConfig(mapHosts)
+	return chooseByLocalHosts(mapHosts)
 }
 
 // GetHost prefers static hosts map, and will use resolver if config.
