@@ -15,9 +15,38 @@ var ErrNoHost = errors.New("no host")
 
 const defaultWeight = 100
 
-// Option decribes upstream option
+// ResolveRule describes upstream resolver config
+type ResolveRule struct {
+	Prefix string
+	Suffix string
+	Port   string
+}
+
+// Normalize .
+func (r *ResolveRule) Normalize(defaultPort string) bool {
+	if r.Prefix == "" && r.Suffix == "" {
+		return false
+	}
+	if r.Port == "" {
+		r.Port = defaultPort
+	}
+	return true
+}
+
+// UniqueID identifies the rule.
+func (r *ResolveRule) UniqueID() string {
+	return r.FullName("")
+}
+
+// FullName returns hostport defined by rule.
+func (r *ResolveRule) FullName(name string) string {
+	return net.JoinHostPort(r.Prefix+name+r.Suffix, r.Port)
+}
+
+// Option describes upstream option
 type Option struct {
-	Net string
+	Net          string
+	ResolveRules []*ResolveRule
 }
 
 // Host indicates a backend server
@@ -25,7 +54,6 @@ type Host struct {
 	Name   string
 	Addr   string
 	Weight int
-	Net    string
 
 	addrs []*net.TCPAddr
 }
@@ -46,21 +74,6 @@ type upstreams struct {
 // SetOption .
 func (u *upstreams) SetOption(option Option) error {
 	u.option = option
-	return nil
-}
-
-func (u *upstreams) chooseByWeight(group *hostGroup) *Host {
-	if group == nil || len(group.hosts) == 0 {
-		return nil
-	}
-
-	v := rand.Intn(group.weight)
-	for _, host := range group.hosts {
-		if host.Weight >= v {
-			return host
-		}
-		v -= host.Weight
-	}
 	return nil
 }
 
@@ -126,25 +139,66 @@ func (u *upstreams) UpdateHosts(hosts []Host) error {
 	return nil
 }
 
-// GetHostByWeight random choose a host by weight
-func (u *upstreams) GetHostByWeight() *Host {
-	hosts := u.allHosts.Load().(*hostGroup)
-	return u.chooseByWeight(hosts)
+func chooseByLocalHosts(group *hostGroup) *Host {
+	if group == nil || len(group.hosts) == 0 {
+		return nil
+	}
+
+	v := rand.Intn(group.weight)
+	for _, host := range group.hosts {
+		if host.Weight >= v {
+			return host
+		}
+		v -= host.Weight
+	}
+	return nil
 }
 
-// GetHostByName choose a host by name, if several hosts have same
+func chooseByResolver(name string, rules []*ResolveRule) *Host {
+	hosts := make([]*Host, 0, 2)
+	for _, r := range rules {
+		hostport := r.FullName(name)
+		addrs, err := lookupTCPAddrs(hostport)
+		if err == nil {
+			h := Host{
+				Name:  name,
+				Addr:  hostport,
+				addrs: addrs,
+			}
+			hosts = append(hosts, &h)
+		}
+	}
+	lenhosts := len(hosts)
+	if lenhosts == 0 {
+		return nil
+	}
+	return hosts[rand.Intn(lenhosts)]
+}
+
+// GetPreferedHost choose a host by name, if several hosts have same
 // name then random choose by weight
-func (u *upstreams) GetHostByName(name string) *Host {
+func (u *upstreams) GetPreferredHost(name string) *Host {
 	mapHosts := u.byNameHosts.Load().(map[string]*hostGroup)
-	return u.chooseByWeight(mapHosts[name])
+	h := chooseByLocalHosts(mapHosts[name])
+	if h == nil && len(u.option.ResolveRules) > 0 {
+		h = chooseByResolver(name, u.option.ResolveRules)
+	}
+	return h
 }
 
-// GetHost .
+// GetRandomHost chooses a host randomly from all hosts.
+func (u *upstreams) GetRandomHost() *Host {
+	mapHosts := u.allHosts.Load().(*hostGroup)
+	return chooseByLocalHosts(mapHosts)
+}
+
+// GetHost prefers static hosts map, and will use resolver if config.
+// When preferred is empty string, GetHost only searches static hosts map.
 func (u *upstreams) GetHost(preferred string) *Host {
 	if preferred != "" {
-		return u.GetHostByName(preferred)
+		return u.GetPreferredHost(preferred)
 	}
-	return u.GetHostByWeight()
+	return u.GetRandomHost()
 }
 
 func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {

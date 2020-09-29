@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -17,6 +18,9 @@ var (
 	configMu    sync.Mutex
 	configCache map[string]interface{}
 )
+
+// ErrInvalidConfig .
+var ErrInvalidConfig = errors.New("Invalid Config")
 
 // init default configure
 func init() {
@@ -51,7 +55,8 @@ func init() {
 	viper.SetDefault("kcp_option.opt_stream", true)      // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
 	viper.SetDefault("kcp_option.opt_writedelay", false) // kcp opt_writedelay: false, 延迟到下次interval发送数据
 
-	viper.SetDefault("upstream_option.net", "tcp") // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
+	viper.SetDefault("upstream_option.net", "tcp")               // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
+	viper.SetDefault("upstream_option.resolve_rule.port", "443") // upstream resolve_rule port: 443, 默认 resolver 连接后端时使用的端口。
 
 	configCache = make(map[string]interface{})
 }
@@ -79,12 +84,12 @@ func reloadConfig() (err error) {
 		if glog.V(3) {
 			glog.Error("no config file used")
 		}
-		return
+		return ErrInvalidConfig
 	}
 
 	if err = viper.ReadInConfig(); err != nil {
 		glog.Errorf("read configuration failed: %s", err.Error())
-		return
+		return ErrInvalidConfig
 	}
 
 	// print current config
@@ -101,6 +106,28 @@ func reloadConfig() (err error) {
 	if err = viper.UnmarshalKey("upstream_option", &option); err != nil {
 		glog.Errorf("unmarshal option failed: %s", err.Error())
 		return err
+	}
+
+	if err = viper.UnmarshalKey("upstream_option.resolve_rule.rules", &option.ResolveRules); err != nil {
+		glog.Errorf("unmarshal option.resolve_rules failed: %s", err.Error())
+		return err
+	}
+
+	if len(option.ResolveRules) > 0 {
+		var defaultResolvePort = viper.GetString("upstream_option.resolve_rule.port")
+		hostMap := make(map[string]bool, len(option.ResolveRules))
+		for _, r := range option.ResolveRules {
+			if !r.Normalize(defaultResolvePort) {
+				glog.Error("must have prefix or suffix for resolve rule")
+				return ErrInvalidConfig
+			}
+			uid := r.UniqueID()
+			if _, e := hostMap[uid]; e {
+				glog.Error("have configured multiple same rule")
+				return ErrInvalidConfig
+			}
+			hostMap[uid] = true
+		}
 	}
 
 	if err = upstream.SetOption(option); err != nil {
