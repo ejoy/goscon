@@ -180,7 +180,10 @@ func chooseByResolver(name string, rules []*ResolveRule) *Host {
 func (u *upstreams) GetPreferredHost(name string) *Host {
 	mapHosts := u.byNameHosts.Load().(map[string]*hostGroup)
 	h := chooseByLocalHosts(mapHosts[name])
-	if h == nil && len(u.option.ResolveRules) > 0 {
+	if h != nil {
+		return h
+	}
+	if len(u.option.ResolveRules) > 0 {
 		h = chooseByResolver(name, u.option.ResolveRules)
 	}
 	return h
@@ -195,10 +198,14 @@ func (u *upstreams) GetRandomHost() *Host {
 // GetHost prefers static hosts map, and will use resolver if config.
 // When preferred is empty string, GetHost only searches static hosts map.
 func (u *upstreams) GetHost(preferred string) *Host {
+	var h *Host
 	if preferred != "" {
-		return u.GetPreferredHost(preferred)
+		h = u.GetPreferredHost(preferred)
 	}
-	return u.GetRandomHost()
+	if h == nil {
+		h = u.GetRandomHost()
+	}
+	return h
 }
 
 func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {

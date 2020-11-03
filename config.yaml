@@ -27,9 +27,10 @@ upstream_option:
   net: tcp
 #  resolve_rule:
 #    port: 443
-#    - suffix: .com
-#      prefix: world
-#      port: 443
+#    rules:
+#      - suffix: .com
+#        prefix: world
+#        port: 443
 hosts:
   - name: test1
     addr: 127.0.0.1:11248
