@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/rand"
 	"net"
+	"regexp"
 	"sync/atomic"
 
 	"github.com/ejoy/goscon/scp"
@@ -17,25 +18,32 @@ const defaultWeight = 100
 
 // ResolveRule describes upstream resolver config
 type ResolveRule struct {
+	// prefix + name + suffix provides the domain name.
 	Prefix string
 	Suffix string
-	Port   string
+
+	Port string
+
+	// The `targetServer` name must match the pattern.
+	Pattern   string
+	rePattern *regexp.Regexp
 }
+
+var errNoPort = errors.New("no port")
 
 // Normalize .
-func (r *ResolveRule) Normalize(defaultPort string) bool {
-	if r.Prefix == "" && r.Suffix == "" {
-		return false
+func (r *ResolveRule) Normalize() error {
+	if r.Pattern != "" {
+		rePattern, err := regexp.Compile(r.Pattern)
+		if err != nil {
+			return err
+		}
+		r.rePattern = rePattern
 	}
 	if r.Port == "" {
-		r.Port = defaultPort
+		return errNoPort
 	}
-	return true
-}
-
-// UniqueID identifies the rule.
-func (r *ResolveRule) UniqueID() string {
-	return r.FullName("")
+	return nil
 }
 
 // FullName returns hostport defined by rule.
@@ -43,10 +51,18 @@ func (r *ResolveRule) FullName(name string) string {
 	return net.JoinHostPort(r.Prefix+name+r.Suffix, r.Port)
 }
 
+// Validate validates the `targetServer` name.
+func (r *ResolveRule) Validate(name string) bool {
+	if r.rePattern == nil {
+		return true
+	}
+	return r.rePattern.MatchString(name)
+}
+
 // Option describes upstream option
 type Option struct {
-	Net          string
-	ResolveRules []*ResolveRule
+	Net    string
+	Resolv *ResolveRule
 }
 
 // Host indicates a backend server
@@ -65,16 +81,15 @@ type hostGroup struct {
 
 // upstreams 代表后端服务
 type upstreams struct {
-	option Option
+	option atomic.Value // *Option
 
 	allHosts    atomic.Value // *hostGroup
 	byNameHosts atomic.Value // map[string]*hostGroup
 }
 
 // SetOption .
-func (u *upstreams) SetOption(option Option) error {
-	u.option = option
-	return nil
+func (u *upstreams) SetOption(option *Option) {
+	u.option.Store(option)
 }
 
 // reference to the host:port format of `net.Dial`.
@@ -99,9 +114,9 @@ func lookupTCPAddrs(hostport string) ([]*net.TCPAddr, error) {
 }
 
 // UpdateHosts .
-func (u *upstreams) UpdateHosts(hosts []Host) error {
+func (u *upstreams) UpdateHosts(option *Option, hosts []Host) error {
 	sz := len(hosts)
-	if sz == 0 {
+	if option.Resolv == nil && sz == 0 {
 		return ErrNoHost
 	}
 	allHosts := new(hostGroup)
@@ -154,10 +169,10 @@ func chooseByLocalHosts(group *hostGroup) *Host {
 	return nil
 }
 
-func chooseByResolver(name string, rules []*ResolveRule) *Host {
+func chooseByResolver(name string, rule *ResolveRule) *Host {
 	hosts := make([]*Host, 0, 2)
-	for _, r := range rules {
-		hostport := r.FullName(name)
+	if rule.Validate(name) {
+		hostport := rule.FullName(name)
 		addrs, err := lookupTCPAddrs(hostport)
 		if err == nil {
 			h := Host{
@@ -183,8 +198,12 @@ func (u *upstreams) GetPreferredHost(name string) *Host {
 	if h != nil {
 		return h
 	}
-	if len(u.option.ResolveRules) > 0 {
-		h = chooseByResolver(name, u.option.ResolveRules)
+	option := u.option.Load().(*Option)
+	if option.Resolv != nil {
+		h = chooseByResolver(name, option.Resolv)
+	}
+	if h == nil {
+		glog.Errorf("prefered name is malformed, name=%s", name)
 	}
 	return h
 }
@@ -241,7 +260,8 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 		return
 	}
 
-	conn, err = upgradeConn(u.option.Net, tcpConn, remoteConn)
+	option := u.option.Load().(*Option)
+	conn, err = upgradeConn(option.Net, tcpConn, remoteConn)
 	if err != nil {
 		conn.Close()
 		return
@@ -254,13 +274,13 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 var defaultUpstreams upstreams
 
 // SetOption sets option
-func SetOption(option Option) error {
-	return defaultUpstreams.SetOption(option)
+func SetOption(option *Option) {
+	defaultUpstreams.SetOption(option)
 }
 
 // UpdateHosts refresh backend hosts list
-func UpdateHosts(hosts []Host) error {
-	return defaultUpstreams.UpdateHosts(hosts)
+func UpdateHosts(option *Option, hosts []Host) error {
+	return defaultUpstreams.UpdateHosts(option, hosts)
 }
 
 // NewConn create a new connection, pair with remoteConn
