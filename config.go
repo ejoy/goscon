@@ -112,11 +112,6 @@ func reloadConfig() (err error) {
 		}
 	}
 
-	if err = upstream.SetOption(option); err != nil {
-		glog.Errorf("upstream set option failed: %s", err.Error())
-		return err
-	}
-
 	// update upstream
 	var hosts []upstream.Host
 	if err = viper.UnmarshalKey("hosts", &hosts); err != nil {
@@ -124,10 +119,15 @@ func reloadConfig() (err error) {
 		return err
 	}
 
-	if err = upstream.UpdateHosts(hosts); err != nil {
+	if err = upstream.UpdateHosts(&option, hosts); err != nil {
 		glog.Errorf("upstream update hosts failed: %s", err.Error())
 		return err
 	}
+
+	// Truly update all the config state, should not error below.
+
+	// set upstream option
+	upstream.SetOption(&option)
 
 	// update scp
 	reuseBuffer := viper.GetInt("scp.reuse_buffer")
