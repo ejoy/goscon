@@ -42,6 +42,7 @@ func (config *Config) clone() *Config {
 	}
 }
 
+// Server wraps conn as scp.Conn
 func Server(conn net.Conn, config *Config) *Conn {
 	if config.ScpServer == nil {
 		panic("config.ScpServer == nil")

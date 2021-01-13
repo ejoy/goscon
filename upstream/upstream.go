@@ -229,7 +229,10 @@ func (u *upstreams) GetHost(preferred string) *Host {
 
 func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {
 	if network == "scp" {
-		scon, _ := scp.Client(localConn, &scp.Config{TargetServer: remoteConn.TargetServer()})
+		scon, _ := scp.Client(localConn, &scp.Config{
+			TargetServer: remoteConn.TargetServer(),
+			Flag:         scp.SCPFlagForbidForwardIP,
+		})
 
 		err = scon.Handshake()
 		if err != nil {
