@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	crand "crypto/rand"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -15,11 +16,23 @@ import (
 
 	"github.com/ejoy/goscon/scp"
 	"github.com/xjdrew/glog"
+	sproto "github.com/xjdrew/gosproto"
 	"github.com/xtaci/kcp-go"
 )
 
 type ClientCase struct {
 	connect string
+}
+
+type sprotoPackage struct {
+	Type    int32  `sproto:"integer,0,name=type"`
+	Session *int32 `sproto:"integer,1,name=session"`
+	Ud      int32  `sproto:"integer,2,name=ud"`
+}
+
+type sprotoAnnounceAddr struct {
+	RemoteAddr string `sproto:"string,0,name=remote_addr"`
+	LocalAddr  string `sproto:"string,1,name=local_addr"`
 }
 
 func packetSize() int {
@@ -146,6 +159,27 @@ func (cc *ClientCase) Start() error {
 	return nil
 }
 
+func readRemoteAddressPacket(c net.Conn) error {
+	var sz uint16
+	if err := binary.Read(c, binary.BigEndian, &sz); err != nil {
+		return err
+	}
+	addressBuf := make([]byte, sz)
+	if _, err := io.ReadFull(c, addressBuf); err != nil {
+		return err
+	}
+	unpacked, err := sproto.Unpack(addressBuf)
+	if err != nil {
+		return err
+	}
+	spHeader := sprotoPackage{}
+	spBody := sprotoAnnounceAddr{}
+	used := sproto.MustDecode(unpacked, &spHeader)
+	sproto.MustDecode(unpacked[used:], &spBody)
+	glog.Infof("new connection, remote address: %s, local address: %s", spBody.RemoteAddr, spBody.LocalAddr)
+	return nil
+}
+
 func startEchoServer(laddr string) (net.Listener, error) {
 	ln, err := net.Listen("tcp", laddr)
 	if err != nil {
@@ -160,6 +194,13 @@ func startEchoServer(laddr string) (net.Listener, error) {
 			}
 			go func(c net.Conn) {
 				defer c.Close()
+				if optSproto {
+					if err := readRemoteAddressPacket(c); err != nil {
+						glog.Errorf("read remote address failed, err=%s", err.Error())
+						return
+					}
+				}
+
 				if optVerbose {
 					wr := io.MultiWriter(c, os.Stdout)
 					io.Copy(wr, c)
@@ -198,6 +239,7 @@ var optRunRounds uint
 var optVerbose bool
 var network string
 var optTargetServer string
+var optSproto bool
 var fecData, fecParity int
 
 func main() {
@@ -215,6 +257,7 @@ func main() {
 	flag.IntVar(&optReuses, "reuse", 1, "reuse times each connection")
 	flag.UintVar(&optRunRounds, "rounds", 1, "run rounds")
 	flag.StringVar(&echoServer, "startEchoServer", "", "start echo server")
+	flag.BoolVar(&optSproto, "sproto", false, "using sproto")
 	flag.StringVar(&optConnect, "connect", "127.0.0.1:1248", "connect to scon server")
 	flag.BoolVar(&optEchoClient, "startEchoClient", false, "start echo client")
 	flag.BoolVar(&optVerbose, "verbose", false, "verbose")
