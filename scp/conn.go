@@ -156,7 +156,7 @@ type Conn struct {
 func (c *Conn) initNewConn(id int, secret leu64) {
 	c.id = id
 	c.secret = secret
-	c.reuseBuffer = defaultLoopBufferPool.Get()
+	c.reuseBuffer = getLoopBuffer(c.config.ReuseBufferSize)
 
 	c.in = newCipherConnReader(c.secret)
 	c.out = newCipherConnWriter(c.secret)
@@ -187,7 +187,7 @@ func (c *Conn) spawn(new *Conn) bool {
 	new.id = c.id
 	new.secret = c.secret
 
-	reuseBuffer := defaultLoopBufferPool.Get()
+	reuseBuffer := getLoopBuffer(c.config.ReuseBufferSize)
 	c.reuseBuffer.CopyTo(reuseBuffer)
 	new.reuseBuffer = reuseBuffer
 	new.in = deepCopyCipherConnReader(c.in)
@@ -435,8 +435,8 @@ func (c *Conn) setConnErr(err error) {
 
 // Handshake .
 func (c *Conn) Handshake() error {
-	if HandshakeTimeout > 0 {
-		c.SetDeadline(time.Now().Add(HandshakeTimeout))
+	if c.config.HandshakeTimeout > 0 {
+		c.SetDeadline(time.Now().Add(c.config.HandshakeTimeout))
 		defer c.SetDeadline(zeroTime)
 	}
 	c.connMutex.Lock()
@@ -536,7 +536,7 @@ func (c *Conn) Close() error {
 	c.freeze()
 
 	if c.reuseBuffer != nil {
-		defaultLoopBufferPool.Put(c.reuseBuffer)
+		putLoopBuffer(c.config.ReuseBufferSize, c.reuseBuffer)
 		c.reuseBuffer = nil
 	}
 	return nil
@@ -570,4 +570,9 @@ func (c *Conn) TargetServer() string {
 // ForbidForwardIP .
 func (c *Conn) ForbidForwardIP() bool {
 	return c.config.Flag&SCPFlagForbidForwardIP > 0
+}
+
+// ReuseBufferSize .
+func (c *Conn) ReuseBufferSize() int {
+	return c.config.ReuseBufferSize
 }

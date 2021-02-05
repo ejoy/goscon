@@ -105,24 +105,34 @@ func (p *loopBufferPool) Get() *loopBuffer {
 
 // if ReuseBufferSize changes, invalidate all old buffer
 func (p *loopBufferPool) Put(v *loopBuffer) {
-	if v.Cap() != ReuseBufferSize {
-		return
-	}
 	p.pool.Put(v)
 }
 
-func newLoopBufferPool() *loopBufferPool {
+func newLoopBufferPool(size int) *loopBufferPool {
 	return &loopBufferPool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				return newLoopBuffer(ReuseBufferSize)
+				return newLoopBuffer(size)
 			},
 		},
 	}
 }
 
-var defaultLoopBufferPool *loopBufferPool
+var loopBufferPoolManager = make(map[int]*loopBufferPool, 2)
+var managerMutex sync.Mutex
 
-func init() {
-	defaultLoopBufferPool = newLoopBufferPool()
+func getLoopBuffer(size int) *loopBuffer {
+	managerMutex.Lock()
+	defer managerMutex.Unlock()
+	if pool, ok := loopBufferPoolManager[size]; ok {
+		return pool.Get()
+	}
+	loopBufferPoolManager[size] = newLoopBufferPool(size)
+	return loopBufferPoolManager[size].Get()
+}
+
+func putLoopBuffer(size int, v *loopBuffer) {
+	managerMutex.Lock()
+	defer managerMutex.Unlock()
+	loopBufferPoolManager[size].Put(v)
 }

@@ -3,6 +3,7 @@ package scp
 
 import (
 	"net"
+	"time"
 )
 
 type SCPServer interface {
@@ -32,13 +33,29 @@ type Config struct {
 	// SCPServer
 	// for server
 	ScpServer SCPServer
+
+	// ReuseBufferSize
+	// stay the same during the connection life time.
+	// for server and client
+	ReuseBufferSize int
+
+	// HandshakeTimeout
+	HandshakeTimeout time.Duration
 }
 
-var defaultConfig = &Config{}
+var defaultConfig = &Config{ReuseBufferSize: ReuseBufferSize}
 
 func (config *Config) clone() *Config {
 	return &Config{
-		ScpServer: config.ScpServer,
+		ScpServer:        config.ScpServer,
+		ReuseBufferSize:  config.ReuseBufferSize,
+		HandshakeTimeout: config.HandshakeTimeout,
+	}
+}
+
+func (config *Config) setDefault() {
+	if config.ReuseBufferSize == 0 {
+		config.ReuseBufferSize = ReuseBufferSize
 	}
 }
 
@@ -52,6 +69,7 @@ func Server(conn net.Conn, config *Config) *Conn {
 		conn:   conn,
 		config: config.clone(),
 	}
+	c.config.setDefault()
 
 	return c
 }
@@ -66,6 +84,7 @@ func Client(conn net.Conn, config *Config) (*Conn, error) {
 		conn:   conn,
 		config: config,
 	}
+	c.config.setDefault()
 
 	if config.ConnForReused != nil {
 		if !config.ConnForReused.spawn(c) {
@@ -73,5 +92,6 @@ func Client(conn net.Conn, config *Config) (*Conn, error) {
 		}
 		c.handshakes = config.ConnForReused.handshakes + 1
 	}
+
 	return c, nil
 }

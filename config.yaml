@@ -1,7 +1,6 @@
 manager: 127.0.0.1:6620
-tcp: 0.0.0.0:1248
-kcp: 0.0.0.0:1248
-scp:
+## default options
+scp_option:
   handshake_timeout: 30
   reuse_time: 30
   reuse_buffer: 65536
@@ -25,15 +24,29 @@ kcp_option:
   opt_stream: true
 upstream_option:
   net: tcp
-#  resolv:
-#    port: 443
-#    suffix: .com
-#    prefix: mail.
-#    pattern : google
-hosts:
-  - name: test1
-    addr: 127.0.0.1:11248
-    weight: 100
-  - name: test2
-    addr: 127.0.0.1:11249
-    weight: 100
+## servers
+server:
+  gameserver:
+    tcp: 0.0.0.0:1248
+    kcp: 0.0.0.0:1248
+    scp_option:
+      reuse_buffer: 32768
+    upstream_option:
+      net: tcp
+      resolv:
+        port: 443
+        suffix: .com
+        prefix: mail.
+        pattern: google
+  whatever:
+    tcp: 0.0.0.0:1249
+    scp_option:
+      reuse_buffer: 65536
+    upstream_option:
+      hosts:
+        - name: test1
+          addr: 127.0.0.1:11248
+          weight: 100
+        - name: test2
+          addr: 127.0.0.1:11249
+          weight: 100

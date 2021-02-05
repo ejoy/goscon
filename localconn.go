@@ -57,8 +57,8 @@ func (c *LocalSCPConn) startWait() {
 }
 
 // NewLocalSCPConn .
-func NewLocalSCPConn(scon *scp.Conn) *LocalSCPConn {
-	scpConn := NewSCPConn(scon)
+func NewLocalSCPConn(scon *scp.Conn, option *SCPOption) *LocalSCPConn {
+	scpConn := NewSCPConn(scon, option)
 	localSCPConn := &LocalSCPConn{SCPConn: scpConn}
 	return localSCPConn
 }

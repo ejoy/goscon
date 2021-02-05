@@ -8,11 +8,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"net"
 	"os"
-	"sync"
 
-	"github.com/spf13/viper"
 	"github.com/xjdrew/glog"
 )
 
@@ -27,8 +24,8 @@ import (
 var _Version = "1.1.0"
 
 func testConfigFile(filename string) error {
-	viper.SetConfigFile(filename)
-	return viper.ReadInConfig()
+	SetConfigFile(filename)
+	return ReloadConfig()
 }
 
 func main() {
@@ -56,65 +53,30 @@ func main() {
 		fmt.Printf("the configuration file %s syntax is ok\n", *configFile)
 
 		if *dumpConfig {
-			fmt.Println(marshalConfigFile())
+			fmt.Println(MarshalConfigFile())
 		}
 		os.Exit(0)
 	}
 
-	viper.SetConfigFile(*configFile)
-	if err := reloadConfig(); err != nil {
+	SetConfigFile(*configFile)
+	if err := ReloadConfig(); err != nil {
 		os.Exit(1)
 	}
 
-	if err := startManager(viper.GetString("manager")); err != nil {
+	if err := startManager(GetConfigManager()); err != nil {
 		glog.Errorf("start manager failed: err=%s", err.Error())
 		os.Exit(1)
 	}
 
-	var wg sync.WaitGroup
-
-	// listen
-	tcpListen := viper.GetString("tcp")
-	if tcpListen != "" {
-		l, err := NewTCPListener(tcpListen)
-		if err != nil {
-			glog.Errorf("tcp listen failed: addr=%s, err=%s", tcpListen, err.Error())
+	for _, server := range GetConfigServers() {
+		option := GetConfigServerOption(server)
+		if err := startServer(server, option); err != nil {
+			glog.Errorf("listen failed: %s", err.Error())
 			os.Exit(1)
 		}
-		glog.Infof("tcp listen start: addr=%s", tcpListen)
-
-		wg.Add(1)
-		go func(l net.Listener) {
-			defer l.Close()
-			defer wg.Done()
-			err := defaultServer.Serve(l)
-			glog.Errorf("tcp listen stop: addr=%s, err=%s", tcpListen, err.Error())
-		}(l)
 	}
 
-	kcpListen := viper.GetString("kcp")
-	if kcpListen != "" {
-		reuseport := viper.GetInt("kcp_option.reuseport")
-		if reuseport <= 0 {
-			reuseport = 1
-		}
-		for i := 0; i < reuseport; i++ {
-			l, err := NewKCPListener(kcpListen)
-			if err != nil {
-				glog.Errorf("kcp listen failed: addr=%s, err=%s", kcpListen, err.Error())
-				os.Exit(1)
-			}
-			glog.Infof("kcp listen start: addr=%s", kcpListen)
+	allServerDone()
 
-			wg.Add(1)
-			go func(l net.Listener) {
-				defer l.Close()
-				defer wg.Done()
-				err := defaultServer.Serve(l)
-				glog.Errorf("kcp listen stop: addr=%s, err=%s", tcpListen, err.Error())
-			}(l)
-		}
-	}
-	wg.Wait()
 	glog.Flush()
 }

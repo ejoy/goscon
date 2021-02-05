@@ -63,6 +63,8 @@ func (r *ResolveRule) Validate(name string) bool {
 type Option struct {
 	Net    string
 	Resolv *ResolveRule
+
+	Hosts []*Host
 }
 
 // Host indicates a backend server
@@ -79,17 +81,17 @@ type hostGroup struct {
 	weight int
 }
 
-// upstreams 代表后端服务
-type upstreams struct {
+// Upstreams 代表后端服务
+type Upstreams struct {
 	option atomic.Value // *Option
 
 	allHosts    atomic.Value // *hostGroup
 	byNameHosts atomic.Value // map[string]*hostGroup
 }
 
-// SetOption .
-func (u *upstreams) SetOption(option *Option) {
-	u.option.Store(option)
+// GetOption returns upstreams option.
+func (u *Upstreams) GetOption() *Option {
+	return u.option.Load().(*Option)
 }
 
 // reference to the host:port format of `net.Dial`.
@@ -113,12 +115,16 @@ func lookupTCPAddrs(hostport string) ([]*net.TCPAddr, error) {
 	return tcpAddrs, nil
 }
 
-// UpdateHosts .
-func (u *upstreams) UpdateHosts(option *Option, hosts []Host) error {
-	sz := len(hosts)
-	if option.Resolv == nil && sz == 0 {
-		return ErrNoHost
+// SetOption .
+func (u *Upstreams) SetOption(option *Option) error {
+	// normalize resolv rule.
+	if option.Resolv != nil {
+		option.Resolv.Normalize()
 	}
+
+	// initialize the hosts.
+	hosts := option.Hosts
+	sz := len(hosts)
 	allHosts := new(hostGroup)
 	allHosts.hosts = make([]*Host, 0, sz)
 	allHosts.weight = 0
@@ -135,7 +141,7 @@ func (u *upstreams) UpdateHosts(option *Option, hosts []Host) error {
 			// set default weight
 			h.Weight = defaultWeight
 		}
-		allHosts.hosts = append(allHosts.hosts, &h)
+		allHosts.hosts = append(allHosts.hosts, h)
 		allHosts.weight = allHosts.weight + h.Weight
 
 		if h.Name != "" {
@@ -144,13 +150,15 @@ func (u *upstreams) UpdateHosts(option *Option, hosts []Host) error {
 				hg = new(hostGroup)
 				byNameHosts[h.Name] = hg
 			}
-			hg.hosts = append(hg.hosts, &h)
+			hg.hosts = append(hg.hosts, h)
 			hg.weight = hg.weight + h.Weight
 		}
 	}
 
+	u.option.Store(option)
 	u.allHosts.Store(allHosts)
 	u.byNameHosts.Store(byNameHosts)
+
 	return nil
 }
 
@@ -190,9 +198,9 @@ func chooseByResolver(name string, rule *ResolveRule) *Host {
 	return hosts[rand.Intn(lenhosts)]
 }
 
-// GetPreferedHost choose a host by name, if several hosts have same
-// name then random choose by weight
-func (u *upstreams) GetPreferredHost(name string) *Host {
+// GetPreferredHost choose a host by name.
+// If several hosts have same name then random choose by weight
+func (u *Upstreams) GetPreferredHost(name string) *Host {
 	mapHosts := u.byNameHosts.Load().(map[string]*hostGroup)
 	h := chooseByLocalHosts(mapHosts[name])
 	if h != nil {
@@ -209,14 +217,14 @@ func (u *upstreams) GetPreferredHost(name string) *Host {
 }
 
 // GetRandomHost chooses a host randomly from all hosts.
-func (u *upstreams) GetRandomHost() *Host {
+func (u *Upstreams) GetRandomHost() *Host {
 	mapHosts := u.allHosts.Load().(*hostGroup)
 	return chooseByLocalHosts(mapHosts)
 }
 
 // GetHost prefers static hosts map, and will use resolver if config.
 // When preferred is empty string, GetHost only searches static hosts map.
-func (u *upstreams) GetHost(preferred string) *Host {
+func (u *Upstreams) GetHost(preferred string) *Host {
 	var h *Host
 	if preferred != "" {
 		h = u.GetPreferredHost(preferred)
@@ -230,8 +238,9 @@ func (u *upstreams) GetHost(preferred string) *Host {
 func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {
 	if network == "scp" {
 		scon, _ := scp.Client(localConn, &scp.Config{
-			TargetServer: remoteConn.TargetServer(),
-			Flag:         scp.SCPFlagForbidForwardIP,
+			TargetServer:    remoteConn.TargetServer(),
+			Flag:            scp.SCPFlagForbidForwardIP,
+			ReuseBufferSize: remoteConn.ReuseBufferSize(),
 		})
 
 		err = scon.Handshake()
@@ -247,7 +256,7 @@ func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn
 }
 
 // NewConn creates a new connection to target server, pair with remoteConn
-func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
+func (u *Upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	tserver := remoteConn.TargetServer()
 	host := u.GetHost(tserver) // TODO: handle name resolve
 	if host == nil {
@@ -274,19 +283,11 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	return
 }
 
-var defaultUpstreams upstreams
-
-// SetOption sets option
-func SetOption(option *Option) {
-	defaultUpstreams.SetOption(option)
-}
-
-// UpdateHosts refresh backend hosts list
-func UpdateHosts(option *Option, hosts []Host) error {
-	return defaultUpstreams.UpdateHosts(option, hosts)
-}
-
-// NewConn create a new connection, pair with remoteConn
-func NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
-	return defaultUpstreams.NewConn(remoteConn)
+// New returns upstreams.
+func New(option *Option) (*Upstreams, error) {
+	u := &Upstreams{}
+	if err := u.SetOption(option); err != nil {
+		return nil, err
+	}
+	return u, nil
 }
