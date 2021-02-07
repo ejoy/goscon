@@ -91,6 +91,9 @@ type SCPServer struct {
 
 	idAllocator *scp.IDAllocator
 
+	// *scp.LoopBufferPool
+	reuseBufferPool atomic.Value
+
 	// listener -> scp server -> upstreams
 	// support tcp/kcp listener
 
@@ -231,7 +234,9 @@ func (ss *SCPServer) handleConn(conn net.Conn) {
 	scon := scp.Server(conn, &scp.Config{
 		ScpServer:        ss,
 		ReuseBufferSize:  option.SCPOption.ReuseBuffer,
-		HandshakeTimeout: option.SCPOption.HandshakeTimeout * time.Second})
+		HandshakeTimeout: option.SCPOption.HandshakeTimeout * time.Second,
+		ReuseBufferPool:  ss.reuseBufferPool.Load().(*scp.LoopBufferPool),
+	})
 	err := scon.Handshake()
 
 	if err != nil {
@@ -347,11 +352,20 @@ func (ss *SCPServer) Done() {
 	ss.wg.Wait()
 }
 
+func newReuseBufferPool(cap int) *scp.LoopBufferPool {
+	return &scp.LoopBufferPool{
+		Pool: sync.Pool{
+			New: func() interface{} {
+				return scp.NewLoopBuffer(cap)
+			},
+		},
+	}
+}
+
 func reloadAllServers() {
 	for typ, ss := range allServers {
 		option := GetConfigServerOption(typ)
 		if option != nil {
-			ss.option.Store(option)
 			if err := ss.upstreams.SetOption(option.UpstreamOption); err == nil {
 				ss.tcpListener.SetOption(option.TCPOption)
 				for _, kcpListener := range ss.kcpListeners {
@@ -361,6 +375,11 @@ func reloadAllServers() {
 			} else {
 				glog.Errorf("reload server=%s options failed", typ)
 			}
+			reuseBufferPool := newReuseBufferPool(option.SCPOption.ReuseBuffer)
+
+			// ensure no error below.
+			ss.option.Store(option)
+			ss.reuseBufferPool.Store(reuseBufferPool)
 		}
 	}
 }
@@ -371,12 +390,14 @@ func startServer(typ string, option *Option) error {
 		return fmt.Errorf("start server=%s upstream failed, err=%s", typ, err.Error())
 	}
 
+	reuseBufferPool := newReuseBufferPool(option.SCPOption.ReuseBuffer)
 	ss := &SCPServer{
 		typ:         typ,
 		idAllocator: scp.NewIDAllocator(1),
 		connPairs:   make(map[int]*connPair),
 		upstreams:   u,
 	}
+	ss.reuseBufferPool.Store(reuseBufferPool)
 	ss.option.Store(option)
 	allServers[typ] = ss
 	if err := ss.Listen(); err != nil {

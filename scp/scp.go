@@ -39,6 +39,11 @@ type Config struct {
 	// for server and client
 	ReuseBufferSize int
 
+	// ReuseBufferPool
+	// for optimize gc
+	// for server and client
+	ReuseBufferPool *LoopBufferPool
+
 	// HandshakeTimeout
 	HandshakeTimeout time.Duration
 }
@@ -49,6 +54,7 @@ func (config *Config) clone() *Config {
 	return &Config{
 		ScpServer:        config.ScpServer,
 		ReuseBufferSize:  config.ReuseBufferSize,
+		ReuseBufferPool:  config.ReuseBufferPool,
 		HandshakeTimeout: config.HandshakeTimeout,
 	}
 }

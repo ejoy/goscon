@@ -5,14 +5,15 @@ import (
 	"sync"
 )
 
-type loopBuffer struct {
+// LoopBuffer .
+type LoopBuffer struct {
 	buf    []byte // contents are the bytes buf[:off] if not looped or buf[off : cap(buf)] + buff[:off]
 	off    int    // write at &buf[off]
 	looped bool   // if the buffer is looped
 }
 
 // Len returns the number of bytes of the contents of the buffer;
-func (b *loopBuffer) Len() int {
+func (b *LoopBuffer) Len() int {
 	if b.looped {
 		return cap(b.buf)
 	}
@@ -21,10 +22,10 @@ func (b *loopBuffer) Len() int {
 
 // Cap returns the capacity of the buffer's underlying byte slice, that is, the
 // total space allocated for the buffer's data.
-func (b *loopBuffer) Cap() int { return cap(b.buf) }
+func (b *LoopBuffer) Cap() int { return cap(b.buf) }
 
 // Write .
-func (b *loopBuffer) Write(p []byte) (n int, err error) {
+func (b *LoopBuffer) Write(p []byte) (n int, err error) {
 	n = len(p)
 	capacity := cap(b.buf)
 
@@ -51,7 +52,7 @@ func (b *loopBuffer) Write(p []byte) (n int, err error) {
 }
 
 // ReadLastBytes .
-func (b *loopBuffer) ReadLastBytes(n int) (buf []byte, err error) {
+func (b *LoopBuffer) ReadLastBytes(n int) (buf []byte, err error) {
 	if n > b.Len() {
 		err = io.ErrShortBuffer
 		return
@@ -70,13 +71,13 @@ func (b *loopBuffer) ReadLastBytes(n int) (buf []byte, err error) {
 }
 
 // Reset .
-func (b *loopBuffer) Reset() {
+func (b *LoopBuffer) Reset() {
 	b.off = 0
 	b.looped = false
 }
 
 // CopyTo .
-func (b *loopBuffer) CopyTo(dst *loopBuffer) {
+func (b *LoopBuffer) CopyTo(dst *LoopBuffer) {
 	if cap(dst.buf) != cap(b.buf) {
 		dst.buf = make([]byte, cap(b.buf))
 	}
@@ -87,52 +88,26 @@ func (b *loopBuffer) CopyTo(dst *loopBuffer) {
 	return
 }
 
-func newLoopBuffer(cap int) *loopBuffer {
-	return &loopBuffer{
+// NewLoopBuffer .
+func NewLoopBuffer(cap int) *LoopBuffer {
+	return &LoopBuffer{
 		buf: make([]byte, cap),
 	}
 }
 
-type loopBufferPool struct {
-	pool sync.Pool
+// LoopBufferPool .
+type LoopBufferPool struct {
+	Pool sync.Pool
 }
 
-func (p *loopBufferPool) Get() *loopBuffer {
-	b := p.pool.Get().(*loopBuffer)
+// Get .
+func (p *LoopBufferPool) Get() *LoopBuffer {
+	b := p.Pool.Get().(*LoopBuffer)
 	b.Reset()
 	return b
 }
 
-// if ReuseBufferSize changes, invalidate all old buffer
-func (p *loopBufferPool) Put(v *loopBuffer) {
-	p.pool.Put(v)
-}
-
-func newLoopBufferPool(size int) *loopBufferPool {
-	return &loopBufferPool{
-		pool: sync.Pool{
-			New: func() interface{} {
-				return newLoopBuffer(size)
-			},
-		},
-	}
-}
-
-var loopBufferPoolManager = make(map[int]*loopBufferPool, 2)
-var managerMutex sync.Mutex
-
-func getLoopBuffer(size int) *loopBuffer {
-	managerMutex.Lock()
-	defer managerMutex.Unlock()
-	if pool, ok := loopBufferPoolManager[size]; ok {
-		return pool.Get()
-	}
-	loopBufferPoolManager[size] = newLoopBufferPool(size)
-	return loopBufferPoolManager[size].Get()
-}
-
-func putLoopBuffer(size int, v *loopBuffer) {
-	managerMutex.Lock()
-	defer managerMutex.Unlock()
-	loopBufferPoolManager[size].Put(v)
+// Put .
+func (p *LoopBufferPool) Put(v *LoopBuffer) {
+	p.Pool.Put(v)
 }

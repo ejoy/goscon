@@ -238,9 +238,12 @@ func (u *Upstreams) GetHost(preferred string) *Host {
 func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {
 	if network == "scp" {
 		scon, _ := scp.Client(localConn, &scp.Config{
-			TargetServer:    remoteConn.TargetServer(),
-			Flag:            scp.SCPFlagForbidForwardIP,
+			Flag: scp.SCPFlagForbidForwardIP,
+
+			TargetServer: remoteConn.TargetServer(),
+			// Keeps ReuseBuffer consistent with the remote conn (downstream).
 			ReuseBufferSize: remoteConn.ReuseBufferSize(),
+			ReuseBufferPool: remoteConn.ReuseBufferPool(),
 		})
 
 		err = scon.Handshake()
