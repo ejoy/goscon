@@ -97,6 +97,7 @@ func NewLoopBuffer(cap int) *LoopBuffer {
 
 // LoopBufferPool .
 type LoopBufferPool struct {
+	Cap  int
 	Pool sync.Pool
 }
 

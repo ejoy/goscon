@@ -22,6 +22,16 @@ kcp_option:
   opt_sndwnd: 2048
   opt_rcvwnd: 2048
   opt_stream: true
+hosts:
+  - name: test1
+    addr: 127.0.0.1:11248
+  - name: test2
+    addr: 127.0.0.1:11249
+resolv:
+  port: 443
+  suffix: .com
+  prefix: mail.
+  pattern: google
 upstream_option:
   net: tcp
 ## servers
@@ -33,20 +43,13 @@ server:
       reuse_buffer: 32768
     upstream_option:
       net: tcp
-      resolv:
-        port: 443
-        suffix: .com
-        prefix: mail.
-        pattern: google
+      resolv: true
   whatever:
     tcp: 0.0.0.0:1249
     scp_option:
       reuse_buffer: 65536
     upstream_option:
-      hosts:
+      locations:
         - name: test1
-          addr: 127.0.0.1:11248
-          weight: 100
+          weight: 20
         - name: test2
-          addr: 127.0.0.1:11249
-          weight: 100

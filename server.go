@@ -354,6 +354,7 @@ func (ss *SCPServer) Done() {
 
 func newReuseBufferPool(cap int) *scp.LoopBufferPool {
 	return &scp.LoopBufferPool{
+		Cap: cap,
 		Pool: sync.Pool{
 			New: func() interface{} {
 				return scp.NewLoopBuffer(cap)
@@ -375,11 +376,14 @@ func reloadAllServers() {
 			} else {
 				glog.Errorf("reload server=%s options failed", typ)
 			}
-			reuseBufferPool := newReuseBufferPool(option.SCPOption.ReuseBuffer)
 
 			// ensure no error below.
 			ss.option.Store(option)
-			ss.reuseBufferPool.Store(reuseBufferPool)
+			oldReuseBufferPool := ss.reuseBufferPool.Load().(*scp.LoopBufferPool)
+			if oldReuseBufferPool.Cap != option.SCPOption.ReuseBuffer {
+				reuseBufferPool := newReuseBufferPool(option.SCPOption.ReuseBuffer)
+				ss.reuseBufferPool.Store(reuseBufferPool)
+			}
 		}
 	}
 }

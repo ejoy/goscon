@@ -19,17 +19,22 @@ var ErrInvalidConfig = errors.New("Invalid Config")
 // ErrTCPOrKCP .
 var ErrTCPOrKCP = errors.New("Need tcp or kcp listen")
 
+// ErrUpstreamProtocol .
+var ErrUpstreamProtocol = errors.New("Use tcp or scp for upstream.net")
+
 // ErrNoHostOrResolv .
 var ErrNoHostOrResolv = errors.New("No hosts or resolv rule configed")
 
 // ViperConfigSchema .
 type ViperConfigSchema struct {
-	Manager        string             `mapstructure:"manager"`
-	SCPOption      *SCPOption         `mapstructure:"scp_option"`
-	TCPOption      *TCPOption         `mapstructure:"tcp_option"`
-	KCPOption      *KCPOption         `mapstructure:"kcp_option"`
-	UpstreamOption *upstream.Option   `mapstructure:"upstream_option"`
-	Server         map[string]*Option `mapstructure:"server"`
+	Manager        string                `mapstructure:"manager"`
+	SCPOption      *SCPOption            `mapstructure:"scp_option"`
+	TCPOption      *TCPOption            `mapstructure:"tcp_option"`
+	KCPOption      *KCPOption            `mapstructure:"kcp_option"`
+	Resolv         *upstream.ResolveRule `mapstructure:"resolv"`
+	Hosts          []*upstream.Host      `mapstructure:"hosts"`
+	UpstreamOption *upstream.Option      `mapstructure:"upstream_option"`
+	Server         map[string]*Option    `mapstructure:"server"`
 }
 
 // ViperConfig .
@@ -86,7 +91,8 @@ func (v *ViperConfig) setDefault(viper *viper.Viper) {
 	viper.SetDefault("kcp_option.opt_stream", true)      // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
 	viper.SetDefault("kcp_option.opt_writedelay", false) // kcp opt_writedelay: false, 延迟到下次interval发送数据
 
-	viper.SetDefault("upstream_option.net", "tcp") // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
+	viper.SetDefault("upstream_option.net", "tcp")     // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
+	viper.SetDefault("upstream_option.resolv", "true") // upstream resolv: true,  默认使用 resolv 规则。
 }
 
 func (v *ViperConfig) marshalConfigFile(viper *viper.Viper) (s string) {
@@ -104,40 +110,57 @@ func (v *ViperConfig) marshalConfigFile(viper *viper.Viper) (s string) {
 	return
 }
 
-func checkUpstreamOption(viper *viper.Viper, key string) error {
-	var upstreamOption upstream.Option
-	viper.UnmarshalKey(key, &upstreamOption)
-	if upstreamOption.Resolv != nil {
-		if err := upstreamOption.Resolv.Normalize(); err != nil {
-			glog.Errorf("invalid pattern for validates the domain name: %s", err.Error())
-			return err
+func checkUpstreamOption(viper *viper.Viper, option *upstream.Option) error {
+	if option.Net != "" { // not default
+		if option.Net != "tcp" && option.Net != "scp" {
+			return ErrUpstreamProtocol
 		}
 	}
 	return nil
 }
 
-func checkDefaultOption(viper *viper.Viper) error {
-	if err := checkUpstreamOption(viper, "upstream_option"); err != nil {
+func checkDefaultOption(viper *viper.Viper, config *ViperConfigSchema) error {
+	if err := checkUpstreamOption(viper, config.UpstreamOption); err != nil {
 		return err
 	}
-	return nil
-}
-
-func checkServerOption(viper *viper.Viper, serverType string) error {
-	if !(viper.IsSet(serverType+".tcp") || viper.IsSet(serverType+".kcp")) {
-		return ErrTCPOrKCP
+	resolvOrHosts := false
+	if viper.IsSet("resolv") {
+		resolvOrHosts = true
+		if err := config.Resolv.Normalize(); err != nil {
+			return err
+		}
 	}
-	if err := checkUpstreamOption(viper, serverType+".upstream_option"); err != nil {
-		return err
+	if viper.IsSet("hosts") {
+		resolvOrHosts = true
+		for _, h := range config.Hosts {
+			if err := h.Normalize(); err != nil {
+				return err
+			}
+		}
 	}
-	if !(viper.IsSet(serverType+".upstream_option.resolv") || viper.IsSet(serverType+".upstream_option.hosts")) {
+	if !resolvOrHosts {
 		return ErrNoHostOrResolv
 	}
 	return nil
 }
 
+func checkServerOption(viper *viper.Viper, config *ViperConfigSchema, serverType string) error {
+	serverPrefix := "server." + serverType
+	if !(viper.IsSet(serverPrefix+".tcp") || viper.IsSet(serverPrefix+".kcp")) {
+		return ErrTCPOrKCP
+	}
+	if viper.IsSet(serverPrefix + ".upstream_option") {
+		option := config.Server[serverType].UpstreamOption
+		if err := checkUpstreamOption(viper, option); err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
 // reloadConfig .
-func (v *ViperConfig) reloadConfig() (err error) {
+func (v *ViperConfig) reloadConfig() error {
 	glog.Info("reload config")
 
 	// try to load config from disk
@@ -151,7 +174,7 @@ func (v *ViperConfig) reloadConfig() (err error) {
 	newViper := viper.New()
 	newViper.SetConfigFile(v.configFile)
 
-	if err = newViper.ReadInConfig(); err != nil {
+	if err := newViper.ReadInConfig(); err != nil {
 		glog.Errorf("read configuration failed: %s", err.Error())
 		return ErrInvalidConfig
 	}
@@ -169,14 +192,14 @@ func (v *ViperConfig) reloadConfig() (err error) {
 		return err
 	}
 
-	if err := checkDefaultOption(newViper); err != nil {
+	if err := checkDefaultOption(newViper, &config); err != nil {
 		glog.Errorf("check default option failed: %s", err.Error())
 		return err
 	}
 
 	server := newViper.GetStringMap("server")
 	for typ := range server {
-		if err := checkServerOption(newViper, "server."+typ); err != nil {
+		if err := checkServerOption(newViper, &config, typ); err != nil {
 			glog.Errorf("check server:%s option failed: %s", typ, err.Error())
 			return err
 		}
@@ -188,7 +211,10 @@ func (v *ViperConfig) reloadConfig() (err error) {
 	v.current = newViper
 	v.mu.Unlock()
 
-	return
+	upstream.ReloadHosts(config.Hosts)
+	upstream.ReloadResolv(config.Resolv)
+
+	return nil
 }
 
 // getServers .
@@ -251,6 +277,7 @@ func (v *ViperConfig) getServerOption(typ string) *Option {
 	// upstream option
 	setDefaultField(tempViper, optionMap, serverType, "upstream_option")
 	setDefaultField(tempViper, optionMap, serverType, "upstream_option", "net")
+	setDefaultField(tempViper, optionMap, serverType, "upstream_option", "resolv")
 
 	var option Option
 	tempViper.UnmarshalKey(serverType, &option)
@@ -273,16 +300,6 @@ func SetConfigFile(file string) {
 	viperConfig.setConfigFile(file)
 }
 
-// MarshalConfigFile .
-func MarshalConfigFile() string {
-	return viperConfig.marshalConfigFile(viperConfig.current)
-}
-
-// ReloadConfig .
-func ReloadConfig() error {
-	return viperConfig.reloadConfig()
-}
-
 // GetConfigServers .
 func GetConfigServers() []string {
 	return viperConfig.getServers()
@@ -291,4 +308,14 @@ func GetConfigServers() []string {
 // GetConfigServerOption .
 func GetConfigServerOption(typ string) *Option {
 	return viperConfig.getServerOption(typ)
+}
+
+// MarshalConfigFile .
+func MarshalConfigFile() string {
+	return viperConfig.marshalConfigFile(viperConfig.current)
+}
+
+// ReloadConfig .
+func ReloadConfig() error {
+	return viperConfig.reloadConfig()
 }
