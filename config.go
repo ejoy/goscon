@@ -16,8 +16,11 @@ import (
 // ErrInvalidConfig .
 var ErrInvalidConfig = errors.New("Invalid Config")
 
-// ErrTCPOrKCP .
-var ErrTCPOrKCP = errors.New("Need tcp or kcp listen")
+// ErrNoListen .
+var ErrNoListen = errors.New("No listen address")
+
+// ErrListenKCPOrTCP .
+var ErrListenKCPOrTCP = errors.New("must listen on tcp or kcp")
 
 // ErrUpstreamProtocol .
 var ErrUpstreamProtocol = errors.New("Use tcp or scp for upstream.net")
@@ -27,14 +30,14 @@ var ErrNoHostOrResolv = errors.New("No hosts or resolv rule configed")
 
 // ViperConfigSchema .
 type ViperConfigSchema struct {
-	Manager        string                `mapstructure:"manager"`
-	SCPOption      *SCPOption            `mapstructure:"scp_option"`
-	TCPOption      *TCPOption            `mapstructure:"tcp_option"`
-	KCPOption      *KCPOption            `mapstructure:"kcp_option"`
-	Resolv         *upstream.ResolveRule `mapstructure:"resolv"`
-	Hosts          []*upstream.Host      `mapstructure:"hosts"`
-	UpstreamOption *upstream.Option      `mapstructure:"upstream_option"`
-	Server         map[string]*Option    `mapstructure:"server"`
+	Manager   string                `mapstructure:"manager"`
+	SCPOption *SCPOption            `mapstructure:"scp_option"`
+	TCPOption *TCPOption            `mapstructure:"tcp_option"`
+	KCPOption *KCPOption            `mapstructure:"kcp_option"`
+	Resolv    *upstream.ResolveRule `mapstructure:"resolv"`
+	Hosts     []*upstream.Host      `mapstructure:"hosts"`
+	Upstream  *upstream.Option      `mapstructure:"upstream"`
+	Server    map[string]*Option    `mapstructure:"server"`
 }
 
 // ViperConfig .
@@ -62,9 +65,6 @@ func (v *ViperConfig) setConfigFile(file string) {
 func (v *ViperConfig) setDefault(viper *viper.Viper) {
 	viper.SetDefault("manager", "127.0.0.1:6620") // manager: listen address, 为空表示不启用管理功能
 
-	viper.SetDefault("tcp", "0.0.0.0:1248") // listen tcp: yes
-	viper.SetDefault("kcp", "")             // listen kcp: no
-
 	viper.SetDefault("scp.handshake_timeout", 30) // scp handshake_timeout: 30s, scp握手超时时间
 	viper.SetDefault("scp.reuse_time", 30)        // scp reuse_time: 30s, 客户端断开后，等待重用的时间
 	viper.SetDefault("scp.reuse_buffer", 65536)   // scp reuse_buffer: 64kb, 等待重连期间，缓存发送给客户端的数据；合理值为reuse_time*流量速度
@@ -91,8 +91,8 @@ func (v *ViperConfig) setDefault(viper *viper.Viper) {
 	viper.SetDefault("kcp_option.opt_stream", true)      // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
 	viper.SetDefault("kcp_option.opt_writedelay", false) // kcp opt_writedelay: false, 延迟到下次interval发送数据
 
-	viper.SetDefault("upstream_option.net", "tcp")     // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
-	viper.SetDefault("upstream_option.resolv", "true") // upstream resolv: true,  默认使用 resolv 规则。
+	viper.SetDefault("upstream.net", "tcp")     // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
+	viper.SetDefault("upstream.resolv", "true") // upstream resolv: true,  默认使用 resolv 规则。
 }
 
 func (v *ViperConfig) marshalConfigFile(viper *viper.Viper) (s string) {
@@ -120,7 +120,7 @@ func checkUpstreamOption(viper *viper.Viper, option *upstream.Option) error {
 }
 
 func checkDefaultOption(viper *viper.Viper, config *ViperConfigSchema) error {
-	if err := checkUpstreamOption(viper, config.UpstreamOption); err != nil {
+	if err := checkUpstreamOption(viper, config.Upstream); err != nil {
 		return err
 	}
 	resolvOrHosts := false
@@ -146,15 +146,18 @@ func checkDefaultOption(viper *viper.Viper, config *ViperConfigSchema) error {
 
 func checkServerOption(viper *viper.Viper, config *ViperConfigSchema, serverType string) error {
 	serverPrefix := "server." + serverType
-	if !(viper.IsSet(serverPrefix+".tcp") || viper.IsSet(serverPrefix+".kcp")) {
-		return ErrTCPOrKCP
+	if !viper.IsSet(serverPrefix + ".listen") {
+		return ErrNoListen
 	}
-	if viper.IsSet(serverPrefix + ".upstream_option") {
-		option := config.Server[serverType].UpstreamOption
+	netField := serverPrefix + ".net"
+	if viper.IsSet(netField) && (viper.GetString(netField) != "kcp" && viper.GetString(netField) != "tcp") {
+		return ErrListenKCPOrTCP
+	}
+	if viper.IsSet(serverPrefix + ".upstream") {
+		option := config.Server[serverType].Upstream
 		if err := checkUpstreamOption(viper, option); err != nil {
 			return err
 		}
-
 	}
 	return nil
 }
@@ -256,17 +259,18 @@ func (v *ViperConfig) getServerOption(typ string) *Option {
 	}
 	optionMap := tempViper.GetStringMap(serverType)
 	// tcp option
-	if tempViper.IsSet(serverType + ".tcp") {
-		setDefaultField(tempViper, optionMap, serverType, "tcp_option")
-		setDefaultField(tempViper, optionMap, serverType, "tcp_option", "read_timeout")
-		setDefaultField(tempViper, optionMap, serverType, "tcp_option", "keepalive")
-		setDefaultField(tempViper, optionMap, serverType, "tcp_option", "keepalive_interval")
-	}
-	// kcp option
-	if tempViper.IsSet(serverType + ".kcp") {
-		setDefaultField(tempViper, optionMap, serverType, "kcp_option")
-		for field := range tempViper.GetStringMap("kcp_option") {
-			setDefaultField(tempViper, optionMap, serverType, "kcp_option", field)
+	if tempViper.IsSet(serverType + ".listen") {
+		netType := tempViper.GetString(serverType + ".net")
+		if netType == "" || netType == "tcp" {
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option")
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option", "read_timeout")
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option", "keepalive")
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option", "keepalive_interval")
+		} else {
+			setDefaultField(tempViper, optionMap, serverType, "kcp_option")
+			for field := range tempViper.GetStringMap("kcp_option") {
+				setDefaultField(tempViper, optionMap, serverType, "kcp_option", field)
+			}
 		}
 	}
 	// scp option
@@ -275,9 +279,9 @@ func (v *ViperConfig) getServerOption(typ string) *Option {
 	setDefaultField(tempViper, optionMap, serverType, "scp_option", "reuse_time")
 	setDefaultField(tempViper, optionMap, serverType, "scp_option", "reuse_buffer")
 	// upstream option
-	setDefaultField(tempViper, optionMap, serverType, "upstream_option")
-	setDefaultField(tempViper, optionMap, serverType, "upstream_option", "net")
-	setDefaultField(tempViper, optionMap, serverType, "upstream_option", "resolv")
+	setDefaultField(tempViper, optionMap, serverType, "upstream")
+	setDefaultField(tempViper, optionMap, serverType, "upstream", "net")
+	setDefaultField(tempViper, optionMap, serverType, "upstream", "resolv")
 
 	var option Option
 	tempViper.UnmarshalKey(serverType, &option)

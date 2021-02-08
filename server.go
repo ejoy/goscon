@@ -334,15 +334,17 @@ func (ss *SCPServer) listenKCP(listen string, option *KCPOption) error {
 // Listen listens scp over tcp or kcp.
 func (ss *SCPServer) Listen() error {
 	option := ss.option.Load().(*Option)
-	if option.TCP != "" {
-		if err := ss.listenTCP(option.TCP, option.TCPOption); err != nil {
+	switch option.Net {
+	case "", "tcp":
+		if err := ss.listenTCP(option.Listen, option.TCPOption); err != nil {
 			return err
 		}
-	}
-	if option.KCP != "" {
-		if err := ss.listenKCP(option.KCP, option.KCPOption); err != nil {
+		break
+	case "kcp":
+		if err := ss.listenKCP(option.Listen, option.KCPOption); err != nil {
 			return err
 		}
+		break
 	}
 	return nil
 }
@@ -367,7 +369,7 @@ func reloadAllServers() {
 	for typ, ss := range allServers {
 		option := GetConfigServerOption(typ)
 		if option != nil {
-			if err := ss.upstreams.SetOption(option.UpstreamOption); err == nil {
+			if err := ss.upstreams.SetOption(option.Upstream); err == nil {
 				ss.tcpListener.SetOption(option.TCPOption)
 				for _, kcpListener := range ss.kcpListeners {
 					kcpListener.SetOption(option.KCPOption)
@@ -389,7 +391,7 @@ func reloadAllServers() {
 }
 
 func startServer(typ string, option *Option) error {
-	u, err := upstream.New(option.UpstreamOption)
+	u, err := upstream.New(option.Upstream)
 	if err != nil {
 		return fmt.Errorf("start server=%s upstream failed, err=%s", typ, err.Error())
 	}

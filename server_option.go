@@ -41,10 +41,10 @@ type KCPOption struct {
 
 // Option configs server option.
 type Option struct {
-	TCP            string           `mapstructure:"tcp"`
-	KCP            string           `mapstructure:"kcp"`
-	TCPOption      *TCPOption       `mapstructure:"tcp_option"`
-	KCPOption      *KCPOption       `mapstructure:"kcp_option"`
-	SCPOption      *SCPOption       `mapstructure:"scp_option"`
-	UpstreamOption *upstream.Option `mapstructure:"upstream_option"`
+	Listen    string           `mapstructure:"listen"`
+	Net       string           `mapstructure:"net"`
+	TCPOption *TCPOption       `mapstructure:"tcp_option"`
+	KCPOption *KCPOption       `mapstructure:"kcp_option"`
+	SCPOption *SCPOption       `mapstructure:"scp_option"`
+	Upstream  *upstream.Option `mapstructure:"upstream"`
 }

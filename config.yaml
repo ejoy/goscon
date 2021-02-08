@@ -32,24 +32,21 @@ resolv:
   suffix: .com
   prefix: mail.
   pattern: google
-upstream_option:
+upstream:
   net: tcp
 ## servers
 server:
-  gameserver:
-    tcp: 0.0.0.0:1248
-    kcp: 0.0.0.0:1248
+  default:
+    listen: 0.0.0.0:1248
+  custom:
+    listen: 0.0.0.0:1249
+    net: "tcp"
     scp_option:
-      reuse_buffer: 32768
-    upstream_option:
-      net: tcp
-      resolv: true
-  whatever:
-    tcp: 0.0.0.0:1249
-    scp_option:
+      reuse_time: 300
       reuse_buffer: 65536
-    upstream_option:
+    upstream:
       locations:
         - name: test1
           weight: 20
         - name: test2
+          weight: 30
