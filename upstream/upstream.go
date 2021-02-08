@@ -15,22 +15,22 @@ var ErrNoHost = errors.New("no host")
 
 const defaultWeight = 100
 
-// Location .
-type Location struct {
+// Server .
+type Server struct {
 	Name   string
 	Weight int
 }
 
 // Option describes upstream option.
 // `Net` indicates the protocol to use for upstream connection.
-// `Locations` is where the scon will be routed to when `TargetServer` is not assigned.
+// `Servers` is where the scon will be routed to when `TargetServer` is not assigned.
 // `Resolv` is true indicates that using the `Resolv` rule for name resolv.
 type Option struct {
 	Net    string
 	Resolv bool
 
-	Locations []*Location
-	Weight    int
+	Servers []*Server
+	Weight  int
 }
 
 // Upstreams 代表后端服务
@@ -40,7 +40,7 @@ type Upstreams struct {
 
 // SetOption .
 func (u *Upstreams) SetOption(option *Option) error {
-	for _, h := range option.Locations {
+	for _, h := range option.Servers {
 		if h.Weight <= 0 {
 			h.Weight = defaultWeight
 		}
@@ -50,8 +50,8 @@ func (u *Upstreams) SetOption(option *Option) error {
 	return nil
 }
 
-func chooseByWeight(locations []*Location, weight int) string {
-	if len(locations) == 0 {
+func chooseByWeight(servers []*Server, weight int) string {
+	if len(servers) == 0 {
 		return ""
 	}
 	if weight == 0 {
@@ -59,7 +59,7 @@ func chooseByWeight(locations []*Location, weight int) string {
 	}
 
 	v := rand.Intn(weight)
-	for _, l := range locations {
+	for _, l := range servers {
 		if l.Weight >= v {
 			return l.Name
 		}
@@ -74,10 +74,10 @@ func (u *Upstreams) GetPreferredHost(name string) []*Host {
 	return resolvName(name, option.Resolv)
 }
 
-// GetRandomHost chooses hosts randomly from all locations.
+// GetRandomHost chooses hosts randomly from all servers.
 func (u *Upstreams) GetRandomHost() []*Host {
 	option := u.option.Load().(*Option)
-	name := chooseByWeight(option.Locations, option.Weight)
+	name := chooseByWeight(option.Servers, option.Weight)
 	return resolvName(name, option.Resolv)
 }
 
