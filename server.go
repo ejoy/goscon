@@ -339,12 +339,10 @@ func (ss *SCPServer) Listen() error {
 		if err := ss.listenTCP(option.Listen, option.TCPOption); err != nil {
 			return err
 		}
-		break
 	case "kcp":
 		if err := ss.listenKCP(option.Listen, option.KCPOption); err != nil {
 			return err
 		}
-		break
 	}
 	return nil
 }
