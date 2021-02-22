@@ -2,15 +2,12 @@ package scp
 
 import (
 	"fmt"
-	"time"
 )
 
 // NetBufferSize .
 var NetBufferSize = 32 * 1024 // 32k
 // ReuseBufferSize .
 var ReuseBufferSize = 64 * 1024 // 64k
-// HandshakeTimeout .
-var HandshakeTimeout time.Duration // 0s
 
 // SCPStatus Code
 const (

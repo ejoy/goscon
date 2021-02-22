@@ -24,11 +24,12 @@ func startManager(laddr string) (err error) {
 
 	http.HandleFunc("/config", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Add("Content-Type", "text/vnd.yaml")
-		io.WriteString(w, marshalConfigFile())
+		io.WriteString(w, MarshalConfigFile())
 	})
 
 	http.HandleFunc("/reload", func(w http.ResponseWriter, _ *http.Request) {
-		err := reloadConfig()
+		err := ReloadConfig()
+		reloadAllServers()
 		if err == nil {
 			io.WriteString(w, "succeed")
 		} else {

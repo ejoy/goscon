@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/xjdrew/glog"
@@ -22,6 +23,12 @@ func (conn tcpConn) Read(b []byte) (int, error) {
 // TCPListener .
 type TCPListener struct {
 	net.Listener
+	option atomic.Value
+}
+
+// SetOption .
+func (l *TCPListener) SetOption(option *TCPOption) {
+	l.option.Store(option)
 }
 
 // Accept .
@@ -35,9 +42,10 @@ func (l *TCPListener) Accept() (conn net.Conn, err error) {
 		glog.Infof("accept new tcp connection: addr=%s", c.RemoteAddr())
 	}
 
-	keepalive := configItemBool("tcp_option.keepalive")
-	keepaliveInterval := configItemTime("tcp_option.keepalive_interval")
-	readTimeout := configItemTime("tcp_option.read_timeout")
+	option := l.option.Load().(*TCPOption)
+	keepalive := option.Keepalive
+	keepaliveInterval := option.KeepaliveInterval * time.Second
+	readTimeout := option.ReadTimeout * time.Second
 
 	t := c.(*net.TCPConn)
 	t.SetKeepAlive(keepalive)
@@ -49,10 +57,12 @@ func (l *TCPListener) Accept() (conn net.Conn, err error) {
 }
 
 // NewTCPListener creates a new TCPListener
-func NewTCPListener(laddr string) (*TCPListener, error) {
+func NewTCPListener(laddr string, option *TCPOption) (*TCPListener, error) {
 	ln, err := net.Listen("tcp", laddr)
 	if err != nil {
 		return nil, err
 	}
-	return &TCPListener{ln}, nil
+	l := &TCPListener{Listener: ln}
+	l.option.Store(option)
+	return l, nil
 }

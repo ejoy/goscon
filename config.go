@@ -4,30 +4,66 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
-	"time"
 
-	"github.com/ejoy/goscon/scp"
 	"github.com/ejoy/goscon/upstream"
 	"github.com/spf13/viper"
 	"github.com/xjdrew/glog"
 	yaml "gopkg.in/yaml.v2"
 )
 
-var (
-	configMu    sync.Mutex
-	configCache map[string]interface{}
-)
-
 // ErrInvalidConfig .
 var ErrInvalidConfig = errors.New("Invalid Config")
 
-// init default configure
-func init() {
-	viper.SetDefault("manager", "127.0.0.1:6620") // manager: listen address, 为空表示不启用管理功能
+// ErrNoListen .
+var ErrNoListen = errors.New("No listen address")
 
-	viper.SetDefault("tcp", "0.0.0.0:1248") // listen tcp: yes
-	viper.SetDefault("kcp", "")             // listen kcp: no
+// ErrListenKCPOrTCP .
+var ErrListenKCPOrTCP = errors.New("must listen on tcp or kcp")
+
+// ErrUpstreamProtocol .
+var ErrUpstreamProtocol = errors.New("Use tcp or scp for upstream.net")
+
+// ErrNoHostOrResolv .
+var ErrNoHostOrResolv = errors.New("No hosts or resolv rule configed")
+
+// ViperConfigSchema .
+type ViperConfigSchema struct {
+	Manager   string                `mapstructure:"manager"`
+	SCPOption *SCPOption            `mapstructure:"scp_option"`
+	TCPOption *TCPOption            `mapstructure:"tcp_option"`
+	KCPOption *KCPOption            `mapstructure:"kcp_option"`
+	Resolv    *upstream.ResolveRule `mapstructure:"resolv"`
+	Hosts     []*upstream.Host      `mapstructure:"hosts"`
+	Upstream  *upstream.Option      `mapstructure:"upstream"`
+	Server    map[string]*Option    `mapstructure:"server"`
+}
+
+// ViperConfig .
+type ViperConfig struct {
+	mu sync.Mutex
+
+	current    *viper.Viper
+	configFile string
+}
+
+var (
+	viperConfig *ViperConfig
+)
+
+func init() {
+	viperConfig = &ViperConfig{}
+}
+
+// setConfigFile .
+func (v *ViperConfig) setConfigFile(file string) {
+	v.configFile = file
+}
+
+// set default configure
+func (v *ViperConfig) setDefault(viper *viper.Viper) {
+	viper.SetDefault("manager", "127.0.0.1:6620") // manager: listen address, 为空表示不启用管理功能
 
 	viper.SetDefault("scp.handshake_timeout", 30) // scp handshake_timeout: 30s, scp握手超时时间
 	viper.SetDefault("scp.reuse_time", 30)        // scp reuse_time: 30s, 客户端断开后，等待重用的时间
@@ -55,12 +91,11 @@ func init() {
 	viper.SetDefault("kcp_option.opt_stream", true)      // kcp opt_stream: true, 是否启用kcp流模式; 流模式下，会合并udp包发送
 	viper.SetDefault("kcp_option.opt_writedelay", false) // kcp opt_writedelay: false, 延迟到下次interval发送数据
 
-	viper.SetDefault("upstream_option.net", "tcp") // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
-
-	configCache = make(map[string]interface{})
+	viper.SetDefault("upstream.net", "tcp")     // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
+	viper.SetDefault("upstream.resolv", "true") // upstream resolv: true,  默认使用 resolv 规则。
 }
 
-func marshalConfigFile() (s string) {
+func (v *ViperConfig) marshalConfigFile(viper *viper.Viper) (s string) {
 	c := viper.AllSettings()
 	b, err := yaml.Marshal(c)
 	if err != nil {
@@ -75,100 +110,216 @@ func marshalConfigFile() (s string) {
 	return
 }
 
-func reloadConfig() (err error) {
-	glog.Info("load config")
+func checkUpstreamOption(viper *viper.Viper, option *upstream.Option) error {
+	if option.Net != "" { // not default
+		if option.Net != "tcp" && option.Net != "scp" {
+			return ErrUpstreamProtocol
+		}
+	}
+	return nil
+}
+
+func checkDefaultOption(viper *viper.Viper, config *ViperConfigSchema) error {
+	if err := checkUpstreamOption(viper, config.Upstream); err != nil {
+		return err
+	}
+	resolvOrHosts := false
+	if viper.IsSet("resolv") {
+		resolvOrHosts = true
+		if err := config.Resolv.Normalize(); err != nil {
+			return err
+		}
+	}
+	if viper.IsSet("hosts") {
+		resolvOrHosts = true
+		for _, h := range config.Hosts {
+			if err := h.Normalize(); err != nil {
+				return err
+			}
+		}
+	}
+	if !resolvOrHosts {
+		return ErrNoHostOrResolv
+	}
+	return nil
+}
+
+func checkServerOption(viper *viper.Viper, config *ViperConfigSchema, serverType string) error {
+	serverPrefix := "server." + serverType
+	if !viper.IsSet(serverPrefix + ".listen") {
+		return ErrNoListen
+	}
+	netField := serverPrefix + ".net"
+	if viper.IsSet(netField) && (viper.GetString(netField) != "kcp" && viper.GetString(netField) != "tcp") {
+		return ErrListenKCPOrTCP
+	}
+	if viper.IsSet(serverPrefix + ".upstream") {
+		option := config.Server[serverType].Upstream
+		if err := checkUpstreamOption(viper, option); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// reloadConfig .
+func (v *ViperConfig) reloadConfig() error {
+	glog.Info("reload config")
 
 	// try to load config from disk
-	if viper.ConfigFileUsed() == "" {
+	if v.configFile == "" {
 		if glog.V(3) {
 			glog.Error("no config file used")
 		}
 		return ErrInvalidConfig
 	}
 
-	if err = viper.ReadInConfig(); err != nil {
+	newViper := viper.New()
+	newViper.SetConfigFile(v.configFile)
+
+	if err := newViper.ReadInConfig(); err != nil {
 		glog.Errorf("read configuration failed: %s", err.Error())
 		return ErrInvalidConfig
 	}
 
-	// print current config
-	glog.Info(marshalConfigFile())
-
-	// clear cache
-	configMu.Lock()
-	for k := range configCache {
-		delete(configCache, k)
+	// print the new config
+	if configString := v.marshalConfigFile(newViper); configString != "" {
+		glog.Info(configString)
+	} else {
+		return ErrInvalidConfig
 	}
-	configMu.Unlock()
 
-	var option upstream.Option
-	if err = viper.UnmarshalKey("upstream_option", &option); err != nil {
-		glog.Errorf("unmarshal option failed: %s", err.Error())
+	var config ViperConfigSchema
+	if err := newViper.Unmarshal(&config); err != nil {
+		glog.Errorf("Config file is invalid: %s", err.Error())
 		return err
 	}
 
-	if option.Resolv != nil {
-		if err := option.Resolv.Normalize(); err != nil {
-			glog.Errorf("invalid pattern for validates the domain name: %s", err.Error())
-			return ErrInvalidConfig
+	if err := checkDefaultOption(newViper, &config); err != nil {
+		glog.Errorf("check default option failed: %s", err.Error())
+		return err
+	}
+
+	server := newViper.GetStringMap("server")
+	for typ := range server {
+		if err := checkServerOption(newViper, &config, typ); err != nil {
+			glog.Errorf("check server:%s option failed: %s", typ, err.Error())
+			return err
 		}
 	}
 
-	// update upstream
-	var hosts []upstream.Host
-	if err = viper.UnmarshalKey("hosts", &hosts); err != nil {
-		glog.Errorf("unmarshal hosts failed: %s", err.Error())
-		return err
-	}
+	v.setDefault(newViper)
 
-	if err = upstream.UpdateHosts(&option, hosts); err != nil {
-		glog.Errorf("upstream update hosts failed: %s", err.Error())
-		return err
-	}
+	v.mu.Lock()
+	v.current = newViper
+	v.mu.Unlock()
 
-	// Truly update all the config state, should not error below.
+	upstream.ReloadHosts(config.Hosts)
+	upstream.ReloadResolv(config.Resolv)
 
-	// set upstream option
-	upstream.SetOption(&option)
-
-	// update scp
-	reuseBuffer := viper.GetInt("scp.reuse_buffer")
-	if reuseBuffer > 0 {
-		scp.ReuseBufferSize = reuseBuffer
-	}
-	handshakeTimeout := viper.GetInt("scp.handshake_timeout")
-	if handshakeTimeout > 0 {
-		scp.HandshakeTimeout = time.Duration(handshakeTimeout) * time.Second
-	}
-	return
+	return nil
 }
 
-func configItemBool(name string) bool {
-	configMu.Lock()
-	defer configMu.Unlock()
-	if v, ok := configCache[name]; ok {
-		return v.(bool)
+// getServers .
+func (v *ViperConfig) getServers() []string {
+	var tempViper *viper.Viper
+	v.mu.Lock()
+	tempViper = v.current
+	v.mu.Unlock()
+	servers := tempViper.GetStringMap("server")
+	serverList := make([]string, 0, len(servers))
+	for s := range servers {
+		serverList = append(serverList, s)
 	}
-	v := viper.GetBool(name)
-	configCache[name] = v
-	return v
+	return serverList
 }
 
-func configItemInt(name string) int {
-	configMu.Lock()
-	defer configMu.Unlock()
-	if v, ok := configCache[name]; ok {
-		return v.(int)
+func setDefaultField(viper *viper.Viper, m map[string]interface{}, root string, fields ...string) {
+	dotField := strings.Join(fields, ".")
+	if !viper.IsSet(root + "." + dotField) {
+		leaf := m
+		lastIndex := len(fields) - 1
+		for i := 0; i != lastIndex; i++ {
+			leaf = leaf[fields[i]].(map[string]interface{})
+		}
+		leaf[fields[lastIndex]] = viper.Get(dotField)
 	}
-	v := viper.GetInt(name)
-	configCache[name] = v
-	return v
 }
 
-func configItemTime(name string) time.Duration {
-	seconds := configItemInt(name)
-	if seconds <= 0 {
-		return 0
+// getServerOption .
+func (v *ViperConfig) getServerOption(typ string) *Option {
+	var tempViper *viper.Viper
+	v.mu.Lock()
+	tempViper = v.current
+	v.mu.Unlock()
+
+	serverType := "server." + typ
+	if !tempViper.IsSet(serverType) {
+		return nil
 	}
-	return time.Duration(seconds) * time.Second
+	optionMap := tempViper.GetStringMap(serverType)
+	// tcp option
+	if tempViper.IsSet(serverType + ".listen") {
+		netType := tempViper.GetString(serverType + ".net")
+		if netType == "" || netType == "tcp" {
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option")
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option", "read_timeout")
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option", "keepalive")
+			setDefaultField(tempViper, optionMap, serverType, "tcp_option", "keepalive_interval")
+		} else {
+			setDefaultField(tempViper, optionMap, serverType, "kcp_option")
+			for field := range tempViper.GetStringMap("kcp_option") {
+				setDefaultField(tempViper, optionMap, serverType, "kcp_option", field)
+			}
+		}
+	}
+	// scp option
+	setDefaultField(tempViper, optionMap, serverType, "scp_option")
+	setDefaultField(tempViper, optionMap, serverType, "scp_option", "handshake_timeout")
+	setDefaultField(tempViper, optionMap, serverType, "scp_option", "reuse_time")
+	setDefaultField(tempViper, optionMap, serverType, "scp_option", "reuse_buffer")
+	// upstream option
+	setDefaultField(tempViper, optionMap, serverType, "upstream")
+	setDefaultField(tempViper, optionMap, serverType, "upstream", "net")
+	setDefaultField(tempViper, optionMap, serverType, "upstream", "resolv")
+
+	var option Option
+	tempViper.UnmarshalKey(serverType, &option)
+	return &option
+}
+
+func (v *ViperConfig) get(key string) interface{} {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.current.Get(key)
+}
+
+// GetConfigManager .
+func GetConfigManager() string {
+	return viperConfig.get("manager").(string)
+}
+
+// SetConfigFile .
+func SetConfigFile(file string) {
+	viperConfig.setConfigFile(file)
+}
+
+// GetConfigServers .
+func GetConfigServers() []string {
+	return viperConfig.getServers()
+}
+
+// GetConfigServerOption .
+func GetConfigServerOption(typ string) *Option {
+	return viperConfig.getServerOption(typ)
+}
+
+// MarshalConfigFile .
+func MarshalConfigFile() string {
+	return viperConfig.marshalConfigFile(viperConfig.current)
+}
+
+// ReloadConfig .
+func ReloadConfig() error {
+	return viperConfig.reloadConfig()
 }

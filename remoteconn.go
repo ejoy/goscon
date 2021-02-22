@@ -158,9 +158,9 @@ func (s *SCPConn) Close() error {
 }
 
 // NewSCPConn .
-func NewSCPConn(scon *scp.Conn) *SCPConn {
+func NewSCPConn(scon *scp.Conn, option *SCPOption) *SCPConn {
 	scpConn := &SCPConn{Conn: scon}
 	scpConn.connCond = sync.NewCond(&scpConn.connMutex)
-	scpConn.reuseTimeout = configItemTime("scp.reuse_time")
+	scpConn.reuseTimeout = option.ReuseTime * time.Second
 	return scpConn
 }

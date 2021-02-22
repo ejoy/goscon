@@ -147,7 +147,7 @@ type Conn struct {
 	handshakes int
 	secret     leu64
 
-	reuseBuffer *loopBuffer
+	reuseBuffer *LoopBuffer
 
 	reused bool // reused conn
 	resend int  // resend data length
@@ -156,7 +156,7 @@ type Conn struct {
 func (c *Conn) initNewConn(id int, secret leu64) {
 	c.id = id
 	c.secret = secret
-	c.reuseBuffer = defaultLoopBufferPool.Get()
+	c.reuseBuffer = c.getReuseBuffer()
 
 	c.in = newCipherConnReader(c.secret)
 	c.out = newCipherConnWriter(c.secret)
@@ -187,8 +187,11 @@ func (c *Conn) spawn(new *Conn) bool {
 	new.id = c.id
 	new.secret = c.secret
 
-	reuseBuffer := defaultLoopBufferPool.Get()
+	reuseBuffer := c.getReuseBuffer()
 	c.reuseBuffer.CopyTo(reuseBuffer)
+	// Keeps ReuseBuffer consistent with the old conn (reuse conn).
+	new.config.ReuseBufferSize = c.config.ReuseBufferSize
+	new.config.ReuseBufferPool = c.config.ReuseBufferPool
 	new.reuseBuffer = reuseBuffer
 	new.in = deepCopyCipherConnReader(c.in)
 	new.out = deepCopyCipherConnWriter(c.out)
@@ -197,6 +200,20 @@ func (c *Conn) spawn(new *Conn) bool {
 
 	new.reused = true
 	return true
+}
+
+func (c *Conn) getReuseBuffer() *LoopBuffer {
+	if c.config.ReuseBufferPool != nil {
+		return c.config.ReuseBufferPool.Get()
+	} else {
+		return NewLoopBuffer(c.config.ReuseBufferSize)
+	}
+}
+
+func (c *Conn) putReuseBuffer(v *LoopBuffer) {
+	if c.config.ReuseBufferPool != nil {
+		c.config.ReuseBufferPool.Put(v)
+	}
 }
 
 func (c *Conn) writeRecord(msg handshakeMessage) error {
@@ -435,8 +452,8 @@ func (c *Conn) setConnErr(err error) {
 
 // Handshake .
 func (c *Conn) Handshake() error {
-	if HandshakeTimeout > 0 {
-		c.SetDeadline(time.Now().Add(HandshakeTimeout))
+	if c.config.HandshakeTimeout > 0 {
+		c.SetDeadline(time.Now().Add(c.config.HandshakeTimeout))
 		defer c.SetDeadline(zeroTime)
 	}
 	c.connMutex.Lock()
@@ -536,7 +553,7 @@ func (c *Conn) Close() error {
 	c.freeze()
 
 	if c.reuseBuffer != nil {
-		defaultLoopBufferPool.Put(c.reuseBuffer)
+		c.putReuseBuffer(c.reuseBuffer)
 		c.reuseBuffer = nil
 	}
 	return nil
@@ -570,4 +587,14 @@ func (c *Conn) TargetServer() string {
 // ForbidForwardIP .
 func (c *Conn) ForbidForwardIP() bool {
 	return c.config.Flag&SCPFlagForbidForwardIP > 0
+}
+
+// ReuseBufferSize .
+func (c *Conn) ReuseBufferSize() int {
+	return c.config.ReuseBufferSize
+}
+
+// ReuseBufferPool .
+func (c *Conn) ReuseBufferPool() *LoopBufferPool {
+	return c.config.ReuseBufferPool
 }

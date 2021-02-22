@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-reuseport"
@@ -57,6 +58,12 @@ func (pconn kcpPacketConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
 // KCPListener .
 type KCPListener struct {
 	*kcp.Listener
+	option atomic.Value
+}
+
+// SetOption .
+func (l *KCPListener) SetOption(option *KCPOption) {
+	l.option.Store(option)
 }
 
 // Accept .
@@ -70,15 +77,17 @@ func (l *KCPListener) Accept() (net.Conn, error) {
 	}
 
 	// set kcp option
-	mtu := configItemInt("kcp_option.opt_mtu")
-	nodelay := configItemInt("kcp_option.opt_nodelay")
-	interval := configItemInt("kcp_option.opt_interval")
-	resend := configItemInt("kcp_option.opt_resend")
-	nc := configItemInt("kcp_option.opt_nc")
-	sndwnd := configItemInt("kcp_option.opt_sndwnd")
-	rcvwnd := configItemInt("kcp_option.opt_rcvwnd")
-	stream := configItemBool("kcp_option.opt_stream")
-	writedelay := configItemBool("kcp_option.opt_writedelay")
+	option := l.option.Load().(*KCPOption)
+
+	mtu := option.OptMTU
+	nodelay := option.OptNodelay
+	interval := option.OptInterval
+	resend := option.OptResend
+	nc := option.OptNC
+	sndwnd := option.OptSndwnd
+	rcvwnd := option.OptRcvwnd
+	stream := option.OptStream
+	writedelay := option.OptWriteDelay
 
 	conn.SetMtu(mtu)
 	conn.SetWindowSize(sndwnd, rcvwnd)
@@ -86,20 +95,20 @@ func (l *KCPListener) Accept() (net.Conn, error) {
 	conn.SetStreamMode(stream)
 	conn.SetWriteDelay(writedelay)
 
-	readTimeout := configItemTime("kcp_option.read_timeout")
+	readTimeout := option.ReadTimeout * time.Second
 	return &kcpConn{conn, readTimeout}, err
 }
 
 // NewKCPListener creates a new KCPListener
-func NewKCPListener(laddr string) (*KCPListener, error) {
+func NewKCPListener(laddr string, option *KCPOption) (*KCPListener, error) {
 	conn, err := reuseport.ListenPacket("udp", laddr)
 	if err != nil {
 		glog.Errorf("new kcp listener failed: %s", err.Error())
 		return nil, err
 	}
 
-	fecDataShards := configItemInt("kcp_option.fec_data_shards")
-	fecParityShards := configItemInt("kcp_option.fec_parity_shards")
+	fecDataShards := option.FecDataShards
+	fecParityShards := option.FecParityShards
 
 	fecHeaderSize := 0
 	if fecDataShards != 0 && fecParityShards != 0 {
@@ -113,12 +122,14 @@ func NewKCPListener(laddr string) (*KCPListener, error) {
 		return nil, err
 	}
 
-	readBuffer := configItemInt("kcp_option.read_buffer")
-	writeBuffer := configItemInt("kcp_option.write_buffer")
+	readBuffer := option.ReadBuffer
+	writeBuffer := option.WriteBuffer
 	ln.SetReadBuffer(readBuffer)
 	ln.SetWriteBuffer(writeBuffer)
 
 	// ?
 	// ln.SetDSCP(46)
-	return &KCPListener{ln}, nil
+	l := &KCPListener{Listener: ln}
+	l.option.Store(option)
+	return l, nil
 }
