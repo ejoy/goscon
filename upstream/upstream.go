@@ -249,15 +249,21 @@ func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn
 // NewConn creates a new connection to target server, pair with remoteConn
 func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	tserver := remoteConn.TargetServer()
-	host := u.GetHost(tserver) // TODO: handle name resolve
+	host := u.GetHost(tserver)
 	if host == nil {
 		err = ErrNoHost
 		glog.Errorf("get host <%s> failed: %s", tserver, err.Error())
 		return
 	}
 
-	addr := host.addrs[rand.Intn(len(host.addrs))]
-	tcpConn, err := net.DialTCP("tcp", nil, addr)
+	rand.Shuffle(len(host.addrs), func(i, j int) { host.addrs[i], host.addrs[j] = host.addrs[j], host.addrs[i] })
+	var tcpConn *net.TCPConn
+	for _, addr := range host.addrs {
+		tcpConn, err = net.DialTCP("tcp", nil, addr)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		glog.Errorf("connect to <%s> failed: %s", host.Addr, err.Error())
 		return
