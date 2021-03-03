@@ -83,17 +83,14 @@ func (u *Upstreams) GetRandomHost() []*Host {
 
 // GetHost prefers static hosts map, and will use resolver if config.
 // When preferred is empty string, GetHost only searches static hosts map.
-func (u *Upstreams) GetHost(preferred string) *Host {
+func (u *Upstreams) GetHost(preferred string) []*Host {
 	var hosts []*Host
 	if preferred != "" {
 		hosts = u.GetPreferredHost(preferred)
 	} else {
 		hosts = u.GetRandomHost()
 	}
-	if len(hosts) > 0 {
-		return hosts[rand.Intn(len(hosts))]
-	}
-	return nil
+	return hosts
 }
 
 func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn net.Conn, err error) {
@@ -122,16 +119,23 @@ func upgradeConn(network string, localConn net.Conn, remoteConn *scp.Conn) (conn
 // NewConn creates a new connection to target server, pair with remoteConn
 func (u *Upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	tserver := remoteConn.TargetServer()
-	host := u.GetHost(tserver) // TODO: handle name resolve
-	if host == nil {
+	hosts := u.GetHost(tserver)
+	if len(hosts) == 0 {
 		err = ErrNoHost
 		glog.Errorf("get host <%s> failed: %s", tserver, err.Error())
 		return
 	}
 
-	tcpConn, err := net.DialTCP("tcp", nil, host.addr)
+	rand.Shuffle(len(hosts), func(i, j int) { hosts[i], hosts[j] = hosts[j], hosts[i] })
+	var tcpConn *net.TCPConn
+	for _, host := range hosts {
+		tcpConn, err = net.DialTCP("tcp", nil, host.addr)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
-		glog.Errorf("connect to <%s> failed: %s", host.Addr, err.Error())
+		glog.Errorf("connect to <%s> failed: %s", tserver, err.Error())
 		return
 	}
 
