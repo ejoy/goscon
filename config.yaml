@@ -37,3 +37,6 @@ hosts:
   - name: test2
     addr: 127.0.0.1:11249
     weight: 100
+resolv_order:
+  - dns
+  - hosts

@@ -81,15 +81,27 @@ type hostGroup struct {
 
 // upstreams 代表后端服务
 type upstreams struct {
-	option atomic.Value // *Option
+	option       atomic.Value // *Option
+	resolv_order atomic.Value // *[]string
 
 	allHosts    atomic.Value // *hostGroup
 	byNameHosts atomic.Value // map[string]*hostGroup
+
+	resolvers map[string]func(*upstreams, string) *Host // resolver converts a name to a host
+}
+
+func (u *upstreams) RegisterResolver(name string, resolver func(*upstreams, string) *Host) {
+	u.resolvers[name] = resolver
 }
 
 // SetOption .
 func (u *upstreams) SetOption(option *Option) {
 	u.option.Store(option)
+}
+
+// SetResolvOrder .
+func (u *upstreams) SetResolvOrder(resolv_order *[]string) {
+	u.resolv_order.Store(resolv_order)
 }
 
 // reference to the host:port format of `net.Dial`.
@@ -190,21 +202,22 @@ func chooseByResolver(name string, rule *ResolveRule) *Host {
 	return hosts[rand.Intn(lenhosts)]
 }
 
-// GetPreferedHost choose a host by name, if several hosts have same
-// name then random choose by weight
-func (u *upstreams) GetPreferredHost(name string) *Host {
-	mapHosts := u.byNameHosts.Load().(map[string]*hostGroup)
-	h := chooseByLocalHosts(mapHosts[name])
-	if h != nil {
-		return h
+// GetPreferedHost chooses a host by name, if several hosts have a same
+// name then chooses by weight randomly.
+// When resolv_order is configured, search name based on the resolv_order.
+func (u *upstreams) GetPreferredHost(name string) (h *Host) {
+	resolv_order := u.resolv_order.Load().(*[]string)
+	for _, n := range *resolv_order {
+		resolver, ok := u.resolvers[n]
+		if !ok {
+			continue
+		}
+		h = resolver(u, name)
+		if h != nil {
+			return h
+		}
 	}
-	option := u.option.Load().(*Option)
-	if option.Resolv != nil {
-		h = chooseByResolver(name, option.Resolv)
-	}
-	if h == nil {
-		glog.Errorf("prefered name is malformed, name=%s", name)
-	}
+	glog.Errorf("prefered name is malformed, name=%s", name)
 	return h
 }
 
@@ -215,7 +228,7 @@ func (u *upstreams) GetRandomHost() *Host {
 }
 
 // GetHost prefers static hosts map, and will use resolver if config.
-// When preferred is empty string, GetHost only searches static hosts map.
+// When preferred is an empty string, GetHost only searches the static hosts map.
 func (u *upstreams) GetHost(preferred string) *Host {
 	var h *Host
 	if preferred != "" {
@@ -280,11 +293,34 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	return
 }
 
-var defaultUpstreams upstreams
+// default resolvers
+
+func resolveNameFromHosts(u *upstreams, name string) *Host {
+	mapHosts := u.byNameHosts.Load().(map[string]*hostGroup)
+	return chooseByLocalHosts(mapHosts[name])
+}
+
+func resolveNameFromDns(u *upstreams, name string) *Host {
+	option := u.option.Load().(*Option)
+	if option.Resolv != nil {
+		return chooseByResolver(name, option.Resolv)
+	} else {
+		return nil
+	}
+}
+
+var defaultUpstreams = upstreams{
+	resolvers: make(map[string]func(*upstreams, string) *Host, 2),
+}
 
 // SetOption sets option
 func SetOption(option *Option) {
 	defaultUpstreams.SetOption(option)
+}
+
+// SetResolvOrder sets the resolv order for searching `targetServer`.
+func SetResolvOrder(resolv_order *[]string) {
+	defaultUpstreams.SetResolvOrder(resolv_order)
 }
 
 // UpdateHosts refresh backend hosts list
@@ -295,4 +331,9 @@ func UpdateHosts(option *Option, hosts []Host) error {
 // NewConn create a new connection, pair with remoteConn
 func NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	return defaultUpstreams.NewConn(remoteConn)
+}
+
+func init() {
+	defaultUpstreams.RegisterResolver("dns", resolveNameFromDns)
+	defaultUpstreams.RegisterResolver("hosts", resolveNameFromHosts)
 }

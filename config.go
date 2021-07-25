@@ -57,6 +57,8 @@ func init() {
 
 	viper.SetDefault("upstream_option.net", "tcp") // upstream net: tcp,  默认使用 tcp 连接后端服务器，可以指定使用 scp 协议保证连接自动重连。
 
+	viper.SetDefault("resolv_order", []string{"hosts", "dns"}) // 默认查找规则，优先查找 hosts，再查找 dns。
+
 	configCache = make(map[string]interface{})
 }
 
@@ -126,10 +128,19 @@ func reloadConfig() (err error) {
 		return err
 	}
 
+	var resolv_order []string
+	if err = viper.UnmarshalKey("resolv_order", &resolv_order); err != nil {
+		glog.Errorf("unmarshal resolv order failed: %s", err.Error())
+		return err
+	}
+
 	// Truly update all the config state, should not error below.
 
 	// set upstream option
 	upstream.SetOption(&option)
+
+	// set resolv_order
+	upstream.SetResolvOrder(&resolv_order)
 
 	// update scp
 	reuseBuffer := viper.GetInt("scp.reuse_buffer")
