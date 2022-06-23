@@ -1,6 +1,7 @@
 manager: 127.0.0.1:6620
 tcp: 0.0.0.0:1248
 kcp: 0.0.0.0:1248
+ws: 0.0.0.0:1249
 scp:
   handshake_timeout: 30
   reuse_time: 30
@@ -23,6 +24,11 @@ kcp_option:
   opt_sndwnd: 2048
   opt_rcvwnd: 2048
   opt_stream: true
+ws_option:
+  cert_file:
+  key_file:
+  backlog: 128
+  read_timeout: 0
 upstream_option:
   net: tcp
 #  resolv:

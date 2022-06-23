@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"log"
 	"net"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ejoy/goscon/scp"
+	"github.com/ejoy/goscon/ws"
 	"github.com/xtaci/kcp-go"
 )
 
@@ -37,7 +39,7 @@ var (
 func dialWithOptions(network, connect string) (net.Conn, error) {
 	if network == "tcp" {
 		return net.Dial(network, connect)
-	} else {
+	} else if network == "kcp" {
 		conn, err := kcp.DialWithOptions(connect, nil, kcpFecData, kcpFecParity)
 		if err != nil {
 			return nil, err
@@ -45,6 +47,10 @@ func dialWithOptions(network, connect string) (net.Conn, error) {
 		conn.SetNoDelay(kcpNodelay, kcpInterval, kcpResend, kcpNc)
 		conn.SetWindowSize(kcpSndWnd, kcpRcvWnd)
 		return conn, nil
+	} else if network == "ws" {
+		return ws.Dial(connect)
+	} else {
+		return nil, errors.New("Invalid network")
 	}
 }
 
@@ -120,6 +126,7 @@ func main() {
 	var connections int
 	var payload int
 	var network string
+
 	flag.StringVar(&connect, "connect", "127.0.0.1:1248", "connect to")
 	flag.StringVar(&targetServer, "targetServer", "", "target server")
 	flag.IntVar(&connections, "connections", 1, "concurrent connections")
@@ -139,11 +146,15 @@ func main() {
 	kcp.IntVar(&kcpFecParity, "fecParity", 0, "FEC: number of parity shards")
 
 	args := flag.Args()
-	if len(args) > 0 && args[0] == "kcp" {
+
+	if len(args) == 0 {
+		network = "tcp"
+	} else if args[0] == "kcp" {
 		kcp.Parse(args[1:])
 		network = "kcp"
-	} else {
-		network = "tcp"
+	} else if args[0] == "ws" {
+		flag.CommandLine.Parse(args[1:])
+		network = "ws"
 	}
 
 	if statLevel < 1 {
