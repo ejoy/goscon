@@ -115,6 +115,26 @@ func main() {
 			}(l)
 		}
 	}
+
+	wsListen := viper.GetString("ws")
+	if wsListen != "" {
+		l, err := NewWSListener(wsListen)
+		if err != nil {
+			glog.Errorf("ws listen failed: addr=%s, err=%s", wsListen, err.Error())
+			os.Exit(1)
+		}
+
+		glog.Infof("ws listen start: addr=%s", wsListen)
+
+		wg.Add(1)
+		go func(l net.Listener) {
+			defer l.Close()
+			defer wg.Done()
+			err := defaultServer.Serve(l)
+			glog.Errorf("ws listen stop: addr=%s, err=%s", tcpListen, err.Error())
+		}(l)
+	}
+
 	wg.Wait()
 	glog.Flush()
 }

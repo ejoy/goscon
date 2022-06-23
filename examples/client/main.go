@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ejoy/goscon/scp"
+	"github.com/ejoy/goscon/ws"
 	"github.com/xjdrew/glog"
 	sproto "github.com/xjdrew/gosproto"
 	"github.com/xtaci/kcp-go"
@@ -119,8 +121,12 @@ func (cc *ClientCase) testN(conn *scp.Conn, packets int) error {
 func Dial(network, connect string) (net.Conn, error) {
 	if network == "tcp" {
 		return net.Dial(network, connect)
-	} else {
+	} else if network == "kcp" {
 		return kcp.DialWithOptions(connect, nil, fecData, fecParity)
+	} else if network == "ws" {
+		return ws.Dial(connect)
+	} else {
+		return nil, errors.New("Invalid network")
 	}
 }
 
@@ -249,6 +255,7 @@ func main() {
 
 	var echoServer string
 	var optEchoClient bool
+
 	flag.IntVar(&optConcurrent, "concurrent", 1, "concurrent connections")
 	flag.IntVar(&optPackets, "packets", 100, "total packets each connection")
 	flag.IntVar(&optPacketsPerSecond, "pps", 100, "packets per second each connection")
@@ -273,11 +280,14 @@ func main() {
 
 	args := flag.Args()
 
-	if len(args) > 0 && args[0] == "kcp" {
+	if len(args) == 0 {
+		network = "tcp"
+	} else if args[0] == "kcp" {
 		kcp.Parse(args[1:])
 		network = "kcp"
-	} else {
-		network = "tcp"
+	} else if args[0] == "ws" {
+		flag.CommandLine.Parse(args[1:])
+		network = "ws"
 	}
 
 	if echoServer != "" {
