@@ -272,7 +272,7 @@ func (u *upstreams) NewConn(remoteConn *scp.Conn) (conn net.Conn, err error) {
 	option := u.option.Load().(*Option)
 	conn, err = upgradeConn(option.Net, tcpConn, remoteConn)
 	if err != nil {
-		conn.Close()
+		tcpConn.Close()
 		return
 	}
 
