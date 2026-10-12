@@ -170,24 +170,21 @@ func chooseByLocalHosts(group *hostGroup) *Host {
 }
 
 func chooseByResolver(name string, rule *ResolveRule) *Host {
-	hosts := make([]*Host, 0, 2)
-	if rule.Validate(name) {
-		hostport := rule.FullName(name)
-		addrs, err := lookupTCPAddrs(hostport)
-		if err == nil {
-			h := Host{
-				Name:  name,
-				Addr:  hostport,
-				addrs: addrs,
-			}
-			hosts = append(hosts, &h)
-		}
-	}
-	lenhosts := len(hosts)
-	if lenhosts == 0 {
+	if !rule.Validate(name) {
 		return nil
 	}
-	return hosts[rand.Intn(lenhosts)]
+
+	hostport := rule.FullName(name)
+	addrs, err := lookupTCPAddrs(hostport)
+	if err != nil {
+		return nil
+	}
+
+	return &Host{
+		Name:  name,
+		Addr:  hostport,
+		addrs: addrs,
+	}
 }
 
 // GetPreferedHost choose a host by name, if several hosts have same
