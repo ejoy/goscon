@@ -161,7 +161,7 @@ func chooseByLocalHosts(group *hostGroup) *Host {
 
 	v := rand.Intn(group.weight)
 	for _, host := range group.hosts {
-		if host.Weight >= v {
+		if host.Weight > v {
 			return host
 		}
 		v -= host.Weight
